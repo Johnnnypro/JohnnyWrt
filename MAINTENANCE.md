@@ -36,6 +36,15 @@
 - [GitHub 只读完整诊断 40740861729](https://github.com/Johnnnypro/JohnnyWrt/actions/runs/40740861729) 已成功，测试源码 `28b4191310cf97c6716ad70f66e05c3100190ef1`，复用上述原始干净工件；构建/发布 job 明确跳过。18 项 Python、UEFI 完整功能（含真实 TCP/RPC/CSS）、TCG/pc 普通重启及两轮保留配置升级通过，旧到新约 216 秒、新到新约 133 秒恢复就绪。
 - 下载 `upgrade-retention-evidence-4` 后核对 ZIP SHA256 `0deb786a87937cf5d5011399d02df6f1ff501521f3ed00305407b6b904912df7` 与 GitHub digest 一致；再次逐项比较每轮刷写前后的原始配置/账号证据，新到新 CSS 基线也一致，无待提交配置。修正后的本地串口完整功能测试同样通过。现在允许启动新的正式编译，最终新镜像仍须重新通过工作流全部门槛，不能用诊断镜像替代发布。
 
+### 主题、自定义 CSS 与手动检测正式发布验收
+
+- [正式发布 Johnnywrt-ISO-25.12.2-1793211834](https://github.com/Johnnnypro/JohnnyWrt/releases/tag/Johnnywrt-ISO-25.12.2-1793211834)，[构建 40744704128（#5）](https://github.com/Johnnnypro/JohnnyWrt/actions/runs/40744704128) 全部成功；镜像源码为 main `238fdf1d73f076a8b842e175661e69fc5da0d1d3`，参数 25.12.2 / 1G / Docker=no。先完成原始工件的只读诊断，再重新编译本次干净镜像。
+- 正式运行再次通过 66 项 Node、18 项 Python、Linux 脚本与软件包检查。最终镜像通过 UEFI 启动、MeowX 操作、原生网络应用/回滚、ZeroTier 接口与限定 LAN 回包 NAT，以及真实 IPv4/IPv6 TCP 成功/拒绝/超时/错误路由、RPC 和 CSS 保存/恢复检查。此前 32 项桌面/390px 系统与手动深浅主题检查报告均无对比度失败或横向溢出；任意自定义 CSS 不属于默认配色保证。
+- TCG/pc 普通重启及两轮保留配置升级通过，旧到新约 307 秒、新到新约 144 秒恢复真实 SSH/overlay/网络就绪。下载 `firmware-diagnostics-5` 后核对 ZIP SHA256 `f62d165ea45f579367b83079bffbbaf79f2246d209ad1d08abc8b98b671a6fe6` 与 GitHub digest 一致，复核每轮刷写前后全部原始配置文件、202 项 UCI 字段及账号行哈希一致，无待提交配置。第二轮额外保留 `/etc/johnny/theme.css`，SHA256 `d823708c3596fea6e82991d07a9a6ef6f808d3adbd930a42778b2df2a29798b0` 与独立 CSS 基线一致。
+- 公开下载全部 5 个附件并核对 GitHub digest 和 SHA256SUMS 的对应项；公开升级包与 CI 保存的原始镜像逐字相同，manifest 亦一致。升级包 SHA256 `7cc3f1f0a5253a8a29f23e8acc98d2621d90b60234fc6c51fd96dc41fdd666ba`；ISO SHA256 `811c760a5002c0a83e92f7f9fde53ed4bdac0b50acab28a5c6cbcf92b0374303`。ISO BIOS/UEFI 引导目录检查通过，内嵌镜像与公开升级包解压 SHA256 均为 `6a1f74706e0ab89e2942322d7b2556b9b03c204ca2e673180f1e9f4ff1ca6a17`。
+- `firmware.json` 的源码、版本、格式和 1024 MiB 根分区核对通过；实际 GPT 引导分区 LBA 512–66047（32 MiB），根分区 LBA 66048–2163199（1024 MiB）。manifest：Linux 6.12.103、MeowX 插件/服务 0.1.8-r1、核心 0.3.9-r1、ZeroTier 1.16.0-r2、Aurora 1.4.0-r20260920；包含 `ip-full`、`ucode-mod-socket`，无 iStore/QuickStart/Docker。
+- 发布备注已补充主题与检测行为、实际版本、准确文件选择和测试边界。网页升级使用 `Johnnywrt-x86_64-squashfs-combined-efi.img.gz` 并保留配置，保持原启动方式；ISO 用于全新安装。本次未刷写或重启用户实机，也未对本次镜像执行用户实机的 `sysupgrade -T`。真实 PPPoE、私人订阅、具体硬件与两地端到端连接仍须部署后验证；不得沿用上一版的实机校验结论。
+
 ## AI 构建前必读清单
 
 1. 先完整阅读根目录 `AGENTS.md` 与本文件，确认当前用户要求，再查看最近一次 Actions 结果；失败时先读失败步骤日志，不要直接重复运行。
