@@ -7,3 +7,5 @@ The preview executes the actual custom LuCI view sources against synthetic RPC d
 Theme logic and CSS are fetched from the pinned upstream Aurora source by the preparation script. They are not copies of a production router's private data. A browser-only mock remains insufficient for backend or upgrade verification; run the guest and retention checks separately.
 
 The fixture disables animation and color transitions to measure settled colors deterministically. Use keyboard activation for controls above a scrolled iframe viewport; verify the displayed resolved mode before accepting a report. Hover states must also be checked, and the production stylesheet keeps primary button hover colors paired.
+
+`controls.html` and `controls-mobile.html` use both original Aurora theme controls and the production custom-style loader. Verify both custom links, unchanged three-option indicator geometry, system/light/dark switching, and no overflow. These controls retain Aurora's animation, so wait for the resolved `data-darkmode` state.
