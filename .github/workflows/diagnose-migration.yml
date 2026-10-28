@@ -7,7 +7,30 @@ permissions:
   actions: read
 
 jobs:
+  prepare_saved_firmware:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      # GitHub requires push access to read unpublished draft assets.
+      # This isolated job runs only GET, SHA256 verification and artifact upload.
+      contents: write
+    steps:
+      - name: Read and verify the unpublished diagnostic asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir diagnostic
+          gh api -H 'Accept: application/octet-stream' repos/Johnnnypro/JohnnyWrt/releases/assets/685304418 > diagnostic/firmware.img.gz
+          echo '681c68282da0c1c2b6cfcba67f421c3243982dfb9008bd7f58156002a5c6ac0e  diagnostic/firmware.img.gz' | sha256sum -c -
+      - uses: actions/upload-artifact@v4
+        with:
+          name: migration-input-${{ github.run_id }}
+          path: diagnostic/firmware.img.gz
+          if-no-files-found: error
+          retention-days: 1
+
   verify_saved_firmware:
+    needs: prepare_saved_firmware
     runs-on: ubuntu-22.04
     timeout-minutes: 40
     steps:
@@ -26,14 +49,16 @@ jobs:
           python3 saved-source/x86-64/test-upgrade-readiness.py
           python3 saved-source/x86-64/test-retention-evidence.py
           node --test x86-64/test-update-ui.js x86-64/test-johnny-model.js x86-64/test-johnny-ui.js
-      - name: Download and verify the original clean artifact
+      - name: Read the verified input with read-only permissions
+        uses: actions/download-artifact@v4
+        with:
+          name: migration-input-${{ github.run_id }}
+          path: diagnostic
+      - name: Verify the input and download the previous release baseline
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir diagnostic previous-release
-          # Original run now returns 404; the exact clean image is retained in
-          # this repository's unpublished diagnostic draft. Use its stable ID.
-          gh api -H 'Accept: application/octet-stream' repos/Johnnnypro/JohnnyWrt/releases/assets/685304418 > diagnostic/firmware.img.gz
+          mkdir previous-release
           echo '681c68282da0c1c2b6cfcba67f421c3243982dfb9008bd7f58156002a5c6ac0e  diagnostic/firmware.img.gz' | sha256sum -c -
           gh release download Johnnywrt-ISO-25.12.2-1793177592 --repo Johnnnnnnnyx/ImmortalWrt-ImageBuilder --pattern Johnnywrt-x86_64-squashfs-combined-efi.img.gz --dir previous-release
           echo 'aaf4f7cc25d026f5e24d38affdfcf589c6f1f50ac8883c88ffd48edef9df1956  previous-release/Johnnywrt-x86_64-squashfs-combined-efi.img.gz' | sha256sum -c -
