@@ -1,0 +1,61 @@
+name: Verify saved firmware before account migration build
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify_saved_firmware:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check out the source that produced the saved firmware
+        uses: actions/checkout@v6
+        with:
+          repository: Johnnnnnnnyx/JohnnyWrt
+          ref: aea524e7d88fe12320b4a9c0b5054fcfd45eb7dd
+          path: saved-source
+          persist-credentials: false
+      - name: Apply only the verified serial-input test fixes
+        run: |
+          cp x86-64/smoke-test25.py x86-64/network-test-plans.js x86-64/test-smoke-input.py saved-source/x86-64/
+          python3 saved-source/x86-64/test-smoke-input.py
+          python3 saved-source/x86-64/test-upgrade-readiness.py
+          python3 saved-source/x86-64/test-retention-evidence.py
+          node --test x86-64/test-update-ui.js x86-64/test-johnny-model.js x86-64/test-johnny-ui.js
+      - name: Download and verify the original clean artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 40699276482 --repo Johnnnnnnnyx/JohnnyWrt --name firmware-diagnostics-3 --dir saved
+          mkdir diagnostic previous-release
+          cp saved/bin/targets/x86/64/immortalwrt-25.12.2-x86-64-generic-squashfs-combined-efi.img.gz diagnostic/firmware.img.gz
+          echo '681c68282da0c1c2b6cfcba67f421c3243982dfb9008bd7f58156002a5c6ac0e  diagnostic/firmware.img.gz' | sha256sum -c -
+          gh release download Johnnywrt-ISO-25.12.2-1793177592 --repo Johnnnnnnnyx/ImmortalWrt-ImageBuilder --pattern Johnnywrt-x86_64-squashfs-combined-efi.img.gz --dir previous-release
+          echo 'aaf4f7cc25d026f5e24d38affdfcf589c6f1f50ac8883c88ffd48edef9df1956  previous-release/Johnnywrt-x86_64-squashfs-combined-efi.img.gz' | sha256sum -c -
+          gzip -dc previous-release/Johnnywrt-x86_64-squashfs-combined-efi.img.gz > previous-release/base.img
+      - name: Install the normal CI test dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf xorriso squashfs-tools
+          python3 -m pip install paramiko==3.5.1
+      - name: Verify full UEFI boot and functions with the CI serial transport
+        run: python3 saved-source/x86-64/smoke-test25.py diagnostic/firmware.img.gz
+      - name: Verify old-to-new and new-to-new retained-settings upgrades
+        run: |
+          python3 saved-source/x86-64/test-sysupgrade.py previous-release/base.img diagnostic/firmware.img.gz
+          echo '681c68282da0c1c2b6cfcba67f421c3243982dfb9008bd7f58156002a5c6ac0e  diagnostic/firmware.img.gz' | sha256sum -c -
+      - name: Save verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-verification-${{ github.run_number }}
+          path: |
+            diagnostic/boot-test.log
+            diagnostic/retention-*.json
+            diagnostic/upgrade-test.log
+            diagnostic/upgrade-test-screen.ppm
+          retention-days: 7
