@@ -124,7 +124,7 @@
 - 修正构建环境后测得：QuickStart 编译测试 29 秒，固件打包 343 秒，UEFI 检查 137 秒，两轮升级检查 200 秒，ISO 制作及校验 178 秒。各阶段耗时不包含初始环境准备、问题排查、文件传输和发布；与不同时间的云端构建比较不属于严格硬件基准测试。
 - VPS 本次源码工作目录为 `/opt/johnnywrt-build/release-build`，最终文件在 `/opt/johnnywrt-build/release-output`。以后开始构建前仍须重新核对分支和稳定版本，读取本文件中的 Docker 文件数上限、OVMF pflash 和 QuickStart 就绪条件，避免直接重复失败命令。
 
-## 独立 JohnnyWrt 仓库与首页／向导（待本次完整构建验收）
+## 独立 JohnnyWrt 仓库与首页／向导（已通过本次完整构建验收）
 
 - 新仓库 main 独立发布；更新器的页面、API、元数据与下载路径均固定到 JohnnyWrt。原仓库只提供历史升级测试镜像，保留旧发布。
 - 移除 iStore 和 QuickStart，首页与网络向导使用原生 LuCI/rpcd/UCI。libuci-lua 显式保留，避免移除 QuickStart 的传递依赖后破坏已承诺的旧 LuCI RPC 兼容。
@@ -169,3 +169,14 @@
 - 诊断运行 40710063711 随后确认：浏览器能够下载该草稿，但 Actions 的 `contents: read` 身份访问草稿附件返回 403。GitHub 草稿要求 push access，普通内容读取权限不足。独立准备 job 使用 `contents: write`，仅执行固定附件 GET、SHA256 和上传临时测试工件，不运行仓库代码或发布命令；后续完整测试 job 仍为只读权限，并且依赖准备 job 成功。不能把浏览器账号的下载能力当作 CI 身份的验证。
 - [完整迁移诊断 40710908714](https://github.com/Johnnnypro/JohnnyWrt/actions/runs/40710908714) 已成功，源码 `da70bc5dd2ba363b9bb257bf9438446a3b46e1d0`：48 项页面、10 项就绪、2 项保留证据、3 项串口输入、TCG/UEFI 完整功能、TCG/pc 普通重启及两轮保留配置升级全部通过。旧到新约 151 秒、新到新约 104 秒恢复 SSH/overlay/网络，原始配置基线一致；前后原始压缩固件 SHA256 不变。验证证据保存在该运行的 `migration-verification-3` 工件中。
 - 诊断镜像仍为旧账号源码 `aea524e7d88fe12320b4a9c0b5054fcfd45eb7dd` 的原始工件，测试仅叠加串口输入修复；新账号更新地址已另外通过当前源码回归和一次性实际系统接口检查。新的正式固件必须重新打包并验证最终镜像中的新地址，不能发布该诊断工件。
+
+## Johnnnypro 首次正式发布与最终验收（2026-10-28）
+
+- [正式发布 Johnnywrt-ISO-25.12.2-1793200541](https://github.com/Johnnnypro/JohnnyWrt/releases/tag/Johnnywrt-ISO-25.12.2-1793200541)，源码 `1f4c894f129b50661bb6e3673d55045db81e6c5d`；[完整构建 40714114012](https://github.com/Johnnnypro/JohnnyWrt/actions/runs/40714114012) 成功。先完成上述原始工件诊断，再重新打包本次干净固件。
+- 48 项页面、10 项就绪、2 项保留证据、3 项串口输入及脚本预检通过。最终镜像通过 UEFI 启动、首页接口、MeowX 开关/重载/重启和实际控制器流量、主路由 DHCP/静态/PPPoE 与旁路由 DHCP/静态的原生应用及自动回滚、确认后配置保留、ZeroTier 接口重绑定及限定直连 LAN 的回包 NAT 检查。
+- TCG/pc 普通重启、旧到新及新到新两轮升级通过，真实 SSH、overlay 和网络均恢复就绪；两轮约 267 秒、118 秒。下载证据后再次比较两轮刷写前后与原始 baseline：网络、订阅、ZeroTier 身份、密码和 SSH 主机密钥全部一致，无待提交配置。
+- 公开下载的全部 5 个附件与 GitHub digest、SHA256SUMS、版本/分区/源码元数据一致。最终 `.img.gz` SHA256：`630483b62aabad16793d93a2eb78eea9c162bad72aed2ded85b78e61d5ecdbc0`；与 CI 实际测试工件相同。ISO SHA256：`692e5a1a8b577fd00ada8def4da149d705b3e6a58af660dbe7e56c198096c910`；BIOS/UEFI 引导目录通过，内嵌固件解压 SHA256 `22285882023488dd6448d67b5d64aec957208610c65621281f04dad4971e0789` 与已测试镜像一致。
+- 两台授权目标设备均通过同一最终镜像的传输哈希、实际分区起点/大小和 `sysupgrade -T`，前后 boot ID 不变；未刷写、未重启。设备地址和详细报告只保存在用户本机，不进入公共仓库。
+- 一次性测试系统的实际在线更新器从 `Johnnnypro/JohnnyWrt` 检查到本次发布，完成下载、SHA256、分区及系统校验，状态为 ready，且 boot ID 不变。该检查没有确认升级或重启；旧账号固件仍须手动保留配置升级一次，之后才使用新更新来源。
+- 实际版本：ImmortalWrt 25.12.2 / Linux 6.12.103，MeowX 0.1.8-r1 / 核心 0.3.9-r1，ZeroTier 1.16.0-r2，Aurora 1.4.0-r20260920。清单确认无 iStore/QuickStart，保持 1024 MiB 根分区，Docker=no。
+- 测试使用一次性账户/组网样例；真实运营商 PPPoE、私人订阅数据、不同硬件及家里/公司端到端连接仍需部署后验证。没有将模拟机和实机不刷写校验表述为已完成用户设备升级。未发布诊断草稿，未删除旧发布。
