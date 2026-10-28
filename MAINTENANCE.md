@@ -33,6 +33,8 @@
 - `test-dashboard-api.sh` 现在在记录或修改配置前等待非空身份文件与有效本地 API 节点地址，两项同时成立才继续；最多等待 180 秒，单次 ubus 调用限制 5 秒，持续未就绪仍失败。没有预置身份、修改 ZeroTier 配置或跳过身份保留断言。延迟身份/API、永久缺文件、文件存在但 API 不响应三项回归先失败后通过。
 - 本地使用同一 `smoke-test25.py` 串口传输入口（逐文件 SHA256 检查）及 `test-sysupgrade.py`；macOS 只以 UTM 官方 QEMU 资源和 pflash 代替 Linux OVMF 路径。实际 GitHub 环境仍须运行 `diagnostic_run_id=40736261376` 的只读完整诊断；通过之前不得重新编译。
 - 原始工件的本地 TCG/pc 普通重启、旧到新与新到新两轮升级通过，两轮均约 86 秒恢复 SSH/overlay/网络就绪。另行复核每轮刷写前后与原始 baseline 的全部文件、UCI 字段及账号行哈希一致，无待提交配置；第二轮只为新增 CSS 加入独立基线并逐字保留。压缩镜像 SHA256 未变。66 项 Node、18 项 Python 及语法/LF 预检通过。
+- [GitHub 只读完整诊断 40740861729](https://github.com/Johnnnypro/JohnnyWrt/actions/runs/40740861729) 已成功，测试源码 `28b4191310cf97c6716ad70f66e05c3100190ef1`，复用上述原始干净工件；构建/发布 job 明确跳过。18 项 Python、UEFI 完整功能（含真实 TCP/RPC/CSS）、TCG/pc 普通重启及两轮保留配置升级通过，旧到新约 216 秒、新到新约 133 秒恢复就绪。
+- 下载 `upgrade-retention-evidence-4` 后核对 ZIP SHA256 `0deb786a87937cf5d5011399d02df6f1ff501521f3ed00305407b6b904912df7` 与 GitHub digest 一致；再次逐项比较每轮刷写前后的原始配置/账号证据，新到新 CSS 基线也一致，无待提交配置。修正后的本地串口完整功能测试同样通过。现在允许启动新的正式编译，最终新镜像仍须重新通过工作流全部门槛，不能用诊断镜像替代发布。
 
 ## AI 构建前必读清单
 
