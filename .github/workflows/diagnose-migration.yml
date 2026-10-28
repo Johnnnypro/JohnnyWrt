@@ -30,9 +30,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download 40699276482 --repo Johnnnnnnnyx/JohnnyWrt --name firmware-diagnostics-3 --dir saved
           mkdir diagnostic previous-release
-          cp saved/bin/targets/x86/64/immortalwrt-25.12.2-x86-64-generic-squashfs-combined-efi.img.gz diagnostic/firmware.img.gz
+          # Original run now returns 404; the exact clean image is retained in
+          # this repository's unpublished diagnostic draft. Use its stable ID.
+          gh api -H 'Accept: application/octet-stream' repos/Johnnnypro/JohnnyWrt/releases/assets/685304418 > diagnostic/firmware.img.gz
           echo '681c68282da0c1c2b6cfcba67f421c3243982dfb9008bd7f58156002a5c6ac0e  diagnostic/firmware.img.gz' | sha256sum -c -
           gh release download Johnnywrt-ISO-25.12.2-1793177592 --repo Johnnnnnnnyx/ImmortalWrt-ImageBuilder --pattern Johnnywrt-x86_64-squashfs-combined-efi.img.gz --dir previous-release
           echo 'aaf4f7cc25d026f5e24d38affdfcf589c6f1f50ac8883c88ffd48edef9df1956  previous-release/Johnnywrt-x86_64-squashfs-combined-efi.img.gz' | sha256sum -c -
