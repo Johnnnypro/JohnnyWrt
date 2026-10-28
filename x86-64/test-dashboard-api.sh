@@ -1,6 +1,18 @@
 #!/bin/sh
 # Run only in the disposable firmware guest. Never source on a deployed router.
 set -eu
+# First boot generates a ZeroTier identity asynchronously. The console's fixed
+# startup delay is not proof that identity generation and the local API finished.
+ready_started=$(date +%s)
+until test -s /etc/zerotier/identity.secret &&
+    ubus -t 5 call luci.johnny check '{"id":"0123456789abcdef"}' 2>/dev/null |
+    jsonfilter -e '@.node.address' 2>/dev/null | grep -Eq '^[0-9a-f]{10}$'; do
+    if [ "$(( $(date +%s) - ready_started ))" -ge 180 ]; then
+        echo 'FAIL: ZeroTier startup not ready (identity and local API required)' >&2
+        exit 1
+    fi
+    sleep 2
+done
 saved=$(mktemp -d)
 cp /etc/config/zerotier "$saved/zerotier"
 cleanup() {
