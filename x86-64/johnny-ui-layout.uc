@@ -5,6 +5,15 @@ let root = ARGV[0] || '';
 let menu = root + '/usr/share/luci/menu.d/';
 let flash_path = root + '/www/luci-static/resources/view/system/flash.js';
 let flash = readfile(flash_path);
+let footer_path = root + '/usr/share/ucode/luci/template/themes/aurora/footer.ut';
+let footer = readfile(footer_path);
+let loader = '<script src="{{ resource }}/johnny/custom-style.js"></script>';
+let footer_anchor = "<script>L.require('menu-aurora')";
+assert(footer != null, 'Cannot read the Aurora footer');
+if (index(footer, loader) < 0) {
+    assert(length(split(footer, footer_anchor)) == 2, 'Unsupported Aurora footer; adapt before building');
+    footer = replace(footer, footer_anchor, loader + '\n\t\t' + footer_anchor);
+}
 let directive = "'require johnny.update as johnnyUpdate';";
 let anchor = 'ss=o.subsection;if(has_sysupgrade){';
 let option = "o=ss.option(form.DummyValue,'johnny_online_update');o.render=function(){return johnnyUpdate.render();};";
@@ -38,6 +47,7 @@ zt['admin/services/zerotier'].order = (meow['admin/services/meowx'].order || 10)
 
 // Validate everything before changing files. uci-defaults retries write failures.
 for (let path, content in {
+    [footer_path]: footer,
     [flash_path]: flash,
     [zt_path]: sprintf('%J\n', zt)
 }) assert(writefile(path, content) == length(content), 'Cannot write ' + path);

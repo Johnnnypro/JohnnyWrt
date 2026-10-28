@@ -9,6 +9,11 @@
         "action": { "type": "view", "path": "johnny/network" },
         "depends": { "acl": ["luci-app-johnny"] }
     },
+    "admin/system/johnny-theme": {
+        "title": "主题设置", "order": 75,
+        "action": { "type": "view", "path": "johnny/theme" },
+        "depends": { "acl": ["luci-app-johnny-theme"] }
+    },
     "admin/services/zerotier/setup": {
         "title": "设置向导", "order": 0,
         "action": { "type": "view", "path": "johnny/zerotier" },

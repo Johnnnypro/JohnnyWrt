@@ -6,6 +6,7 @@
 'require poll';
 'require tools.meowx as meowx';
 'require johnny.model as model';
+'require johnny.connectivity as connectivity';
 
 const getStatus = rpc.declare({object:'luci.johnny',method:'status',expect:{'':{}}});
 const getAccount = rpc.declare({object:'luci.meowx',method:'panel_status',expect:{'':{}}});
@@ -38,12 +39,12 @@ function graph(samples,keys=['rx','tx'],mini=false) {
     svg.setAttribute('class',mini?'jw-spark':'jw-graph');
     if(samples.length<2)return svg;
     const peak=Math.max(1,...samples.flatMap(s=>keys.map(k=>Number(s[k])||0)))*1.15;
-    keys.forEach((key,index)=>{
+    keys.forEach(key=>{
         const points=samples.map((s,i)=>[(i/(samples.length-1)*600).toFixed(1),(145-(Number(s[key])||0)/peak*135).toFixed(1)]);
         const d='M'+points.map(p=>p.join(',')).join(' L');
         const fill=document.createElementNS(ns,'path'),line=document.createElementNS(ns,'path');
-        fill.setAttribute('d',d+' L600,150 L0,150 Z');fill.setAttribute('fill',index?'#9970ff22':'#19b8fa28');
-        line.setAttribute('d',d);line.setAttribute('fill','none');line.setAttribute('stroke',index?'#915dff':'#00a9f5');line.setAttribute('stroke-width','2.5');line.setAttribute('vector-effect','non-scaling-stroke');
+        fill.setAttribute('d',d+' L600,150 L0,150 Z');fill.setAttribute('fill',key==='tx'?'#9970ff22':'#19b8fa28');
+        line.setAttribute('d',d);line.setAttribute('fill','none');line.setAttribute('stroke',key==='tx'?'var(--jw-tx)':'var(--jw-rx)');line.setAttribute('stroke-width','2.5');line.setAttribute('vector-effect','non-scaling-stroke');
         svg.appendChild(fill);svg.appendChild(line);
     });return svg;
 }
@@ -81,6 +82,7 @@ return view.extend({
         return execute();
     },
     refresh: async function() {
+        const known=this.data?.zerotier?.networks||[];
         try {
             const next=await getStatus();
             this.previous=this.data; this.data=next;
@@ -88,6 +90,10 @@ return view.extend({
             if(operation) this.notice=operation.state==='done'?'MeowX 操作已完成':operation.state==='failed'?'MeowX 操作失败，请查看服务日志':'MeowX 正在处理，请稍候…';
             this.failure=null;
         } catch(e) {this.data=null;this.failure='状态读取失败，请检查连接后重试';}
+        for(const network of known){
+            const current=this.data?.zerotier?.networks?.find(n=>n.id===network.id);
+            connectivity.summary({...this.data?.zerotier,id:network.id,network:current});
+        }
         this.draw();
     },
     draw: function() {
@@ -157,7 +163,8 @@ return view.extend({
                 row('本地网段',lan.local.join('、')||'待获取'),
                 row('远端网段',lan.remote.length?'已识别 '+lan.remote.length+' 个':'等待控制器下发'),
                 row('内网路由',lan.remote.length?'已收到':'等待获取')]),
-            E('div',{class:'jw-warning'},[E('strong',{},'跨网连通性'),E('span',{},'尚未验证')]),
+            E('a',{class:'jw-connectivity-link',href:L.url('admin','services','zerotier','setup')+'#connectivity'},[
+                E('strong',{},'目标连通性'),E('span',{},connectivity.summary({...zt,id:networks[0]?.id,network:networks[0]}).label),E('span',{},'检测 ›')]),
             E('p',{class:'jw-subtle'},'已有地址与路由自动获取，无需重复填写。'),
             E('div',{class:'jw-actions jw-service-actions'},[link('设置向导','admin','services','zerotier','setup'),link('网络详情','admin','services','zerotier','interface')]),
             E('a',{class:'jw-zt-settings',href:L.url('admin','services','zerotier','config')},'⚙ 服务设置 ›')
@@ -181,14 +188,20 @@ return view.extend({
         if(mxRate.rx!=null&&data.time!==this.proxyTime){this.proxyHistory.push(mxRate);this.proxyHistory=this.proxyHistory.slice(-30);this.proxyTime=data.time;}
         const traffic=card('网络流量',[
             E('select',{'aria-label':'流量网口',change:ev=>{this.interface=ev.target.value;this.history=[];this.draw();}},(data.interfaces||[]).filter(x=>x.physical).map(x=>E('option',{value:x.name,selected:x.name===this.interface||null},x.name))),
-            E('div',{class:'jw-rates'},[row('↓ 接收',bytes(rates.rx)+'/s'),row('↑ 发送',bytes(rates.tx)+'/s')]),
+            E('div',{class:'jw-rates'},[row('↓ 接收 · 蓝色',bytes(rates.rx)+'/s'),row('↑ 发送 · 紫色',bytes(rates.tx)+'/s')]),
             E('div',{class:'jw-chart','aria-label':'最近流量记录'},[graph(this.history)]),
             E('p',{class:'jw-subtle'},'按所选网口实时采样；订阅用量以提供方记录为准。')]);
-        const interfaces=card('网络接口',(data.interfaces||[]).map(x=>row(x.name,x.state==='up'?'已连接':x.state||'未知')));
+        const interfaces=card('网络接口',(data.interfaces||[]).map(x=>{
+            const network=networks.find(n=>n.portDeviceName===x.name);
+            if(!network)return row(x.name,({up:'已连接',down:'未连接',unknown:'状态未报告',dormant:'等待连接',lowerlayerdown:'下层链路未连接'}[x.state]||'状态未知'));
+            const state=model.ztState(node,network).state;
+            return E('div',{class:'jw-row'},[E('span',{class:'jw-interface-name'},[E('strong',{},'ZeroTier'),E('small',{},x.name+(networks.length>1?' · '+(network.name||network.id):''))]),
+                E('strong',{},state==='ready'?'已加入网络':statusNames[state])]);
+        }));
         this.content.replaceChildren(
             ...(this.failure?[E('p',{class:'alert-message warning'},this.failure)]:[]),
             ...(this.notice?[E('p',{class:'jw-subtle'},this.notice)]:[]),stats,
-            E('div',{class:'jw-grid'},[meowCard,ztCard]),E('div',{class:'jw-grid'},[traffic,interfaces]),
+            E('div',{class:'jw-grid jw-home-layout'},[E('div',{class:'jw-home-column'},[meowCard,traffic]),E('div',{class:'jw-home-column'},[ztCard,interfaces])]),
             E('div',{class:'jw-shortcuts'},[shortcut('网络向导','设置地址与 DNS','router','admin','johnny-network'),shortcut('网络设置','高级网络配置','router','admin','network','network'),shortcut('日志查看','系统与服务日志','memory','admin','status','syslog'),shortcut('备份与更新','固件备份与系统更新','disk','admin','system','flash')])
         );
     },

@@ -13,6 +13,8 @@ cleanup() {
 trap cleanup EXIT
 before=$(sha256sum /etc/config/zerotier)
 ubus call luci.johnny join '{"id":"bad;touch /tmp/johnny-injection"}' | grep -q error
+ubus call luci.johnny probe '{"id":"bad","ip":"127.0.0.1","port":80}' | grep -q error
+ubus call luci.johnny probe '{"id":"0123456789abcdef","ip":"localhost","port":80}' | grep -q error
 test ! -e /tmp/johnny-injection
 test "$before" = "$(sha256sum /etc/config/zerotier)"
 mkdir -p /var/run/rpcd/uci-johnny-test
@@ -49,3 +51,12 @@ ucode -e 'import {readfile} from "fs"; let t=readfile("/tmp/johnny-api-status.js
 ubus call luci.johnny check '{"id":"0123456789abcdef"}' > /tmp/johnny-api-check.json
 ucode -e 'import {readfile} from "fs"; let s=json(readfile("/tmp/johnny-api-check.json")); assert(type(s.running)=="bool"); assert(s.node.address); assert(s.lan.end_to_end=="unverified");'
 echo 'PASS: bounded status, invalid IDs, pending settings, repeated join, identity and unrelated networks'
+ucode -e '
+import { readfile } from "fs";
+let s = json(readfile("/tmp/johnny-api-status.json"));
+let c = json(readfile("/tmp/johnny-api-check.json"));
+assert(length(s.zerotier.boot) > 0 && s.zerotier.boot == c.boot);
+let acl = json(readfile("/usr/share/rpcd/acl.d/johnny.json"))["luci-app-johnny"];
+assert(index(acl.read.ubus["luci.johnny"], "probe") < 0);
+assert(index(acl.write.ubus["luci.johnny"], "probe") >= 0);
+'

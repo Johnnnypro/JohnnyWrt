@@ -5,7 +5,9 @@ const load = name => fs.existsSync(`${__dirname}/${name}`) ? fs.readFileSync(`${
 const model = new Function('baseclass', load('johnny-model.js'))({ extend: x => x });
 function setup(file, readonly = false) {
     const nodes = [], calls = [], polls = [], modals = [], notifications=[];
-    let account={logged_in:false};
+    let account={logged_in:false},probe=async()=>({outcome:'passed',timestamp:100,elapsed_ms:12,device:'zt123'});
+    const storage={};
+    const connectivity=new Function('baseclass','localStorage',load('johnny-connectivity.js'))({extend:x=>x},{getItem:k=>storage[k],setItem:(k,v)=>storage[k]=v});
     let status = {time:1, system:{}, interfaces:[], meowx:{running:true}, zerotier:{node:{online:true},networks:[],lan:{}}};
     function E(tag, attrs = {}, children = []) {
         const node = {tag, ...attrs, children, textContent:typeof children === 'string' ? children : '',
@@ -17,21 +19,60 @@ function setup(file, readonly = false) {
     const rpc = {declare: spec => async (...args) => {calls.push([spec.method,...args]); if(status instanceof Error) throw status;
         if(spec.method==='status') return status;
         if(spec.method==='panel_status') {if(account instanceof Error)throw account;return account;}
-        if(spec.method==='check') return {running:status.zerotier.running,node:status.zerotier.node,network:status.zerotier.networks[0],lan:{}};
+        if(spec.method==='probe') return probe(...args);
+        if(spec.method==='check') return {boot:status.zerotier.boot,running:status.zerotier.running,node:status.zerotier.node,network:status.zerotier.networks[0],lan:{}};
         return {accepted:true};}};
     const ui = {changes:{init:async()=>{},apply:async()=>{}},addNotification:(_,node)=>notifications.push(node.textContent),showModal:(title,content)=>modals.push([title,content]),hideModal(){}};
     const uci = {load:async()=>{},unload(){},get:()=>null,sections:()=>[],changes:async()=>({})};
     const meowx = {panelStatus:async()=>({logged_in:false}),panelProfile:async()=>({}),subscriptionName:s=>s.name,openDashboard:async()=>{}};
-    const view = new Function('view','rpc','uci','ui','poll','meowx','model','E','L','navigator','document',load(file))(
-        {extend:x=>x},rpc,uci,ui,{add:fn=>polls.push(fn),remove:fn=>polls.splice(polls.indexOf(fn),1)},meowx,model,E,
+    const view = new Function('view','rpc','uci','ui','poll','meowx','model','connectivity','E','L','navigator','document',load(file))(
+        {extend:x=>x},rpc,uci,ui,{add:fn=>polls.push(fn),remove:fn=>polls.splice(polls.indexOf(fn),1)},meowx,model,connectivity,E,
         {hasViewPermission:()=>!readonly,resource:x=>x,url:(...x)=>x.join('/')},{clipboard:{writeText:async()=>{}}},{createElementNS:(_,tag)=>E(tag)});
-    return {view,nodes,calls,polls,modals,uci,meowx,notifications,setAccount:a=>{account=a;meowx.panelStatus=async()=>a;},setStatus:s=>status=s,button:label=>nodes.findLast(n=>n.tag==='button' && n.textContent===label)};
+    return {view,nodes,calls,polls,modals,uci,meowx,connectivity,notifications,setProbe:p=>probe=p,setAccount:a=>{account=a;meowx.panelStatus=async()=>a;},setStatus:s=>status=s,button:label=>nodes.findLast(n=>n.tag==='button' && n.textContent===label)};
 }
+function readyProbe(readonly=false){
+    const t=setup('johnny-zerotier.js',readonly);
+    t.setStatus({zerotier:{boot:'boot-1',running:true,node:{online:true,address:'node-1'},networks:[{id:'0123456789abcdef',status:'OK',portDeviceName:'zt123',assignedAddresses:['10.0.0.2/24']}],lan:{}}});
+    return t;
+}
+test('ZeroTier only probes on a click; preserves target during status refresh',async()=>{
+    const t=readyProbe();await t.view.render(await t.view.load());
+    t.view.probeIP.value='192.168.8.2';t.view.probePort.value='443';
+    await t.polls[0]();assert.equal(t.view.probeIP.value,'192.168.8.2');
+    assert(!t.calls.some(c=>c[0]==='probe'));
+    await t.button('开始检测').click();assert(t.calls.some(c=>c[0]==='probe'&&c[2]==='192.168.8.2'&&c[3]===443));
+    assert.match(t.view.probeStatus.children[0].textContent,/上次检测通过/);
+});
+test('ZeroTier probe prevents duplicate calls, readonly calls and stale asynchronous success',async()=>{
+    const ro=readyProbe(true);await ro.view.render(await ro.view.load());assert(ro.button('开始检测').disabled);
+    await ro.button('开始检测').click();assert(!ro.calls.some(c=>c[0]==='probe'));
+    const t=readyProbe();await t.view.render(await t.view.load());t.view.probeIP.value='192.168.8.2';t.view.probePort.value='443';
+    let finish;t.setProbe(()=>new Promise(resolve=>finish=resolve));
+    const pending=t.button('开始检测').click();await t.view.runProbe();
+    assert.equal(t.calls.filter(c=>c[0]==='probe').length,1);
+    t.view.probeIP.value='192.168.8.3';t.view.probeIP.input();
+    finish({outcome:'passed',timestamp:100});await pending;
+    assert.equal(t.connectivity.read(t.view.id).result,undefined);
+});
+test('ZeroTier failed request clears in-flight state and reports error without claiming a failed TCP check',async()=>{
+    const t=readyProbe();await t.view.render(await t.view.load());t.view.probeIP.value='192.168.8.2';t.view.probePort.value='443';
+    t.setProbe(async()=>{throw Error('RPC unreachable');});await t.button('开始检测').click();
+    assert.equal(t.view.probing,false);assert.equal(t.connectivity.read(t.view.id).result,undefined);
+    assert.match(t.view.probeError,/未完成/);
+});
 test('homepage renders without account and keeps unavailable telemetry unknown', async()=>{
     const t=setup('johnny-home.js'); assert.equal(typeof t.view.render,'function');
     await t.view.render(await t.view.load());
     assert(t.nodes.some(n=>n.textContent.includes('尚未登录订阅账户')));
     assert(t.nodes.some(n=>n.textContent==='暂无订阅用量信息'));
+});
+test('ZeroTier interfaces use network identity and state instead of kernel unknown',async()=>{
+    const t=setup('johnny-home.js');
+    t.setStatus({system:{},interfaces:[{name:'zt123',state:'unknown'}],zerotier:{node:{online:true},networks:[{id:'0123456789abcdef',portDeviceName:'zt123',status:'OK',assignedAddresses:['10.0.0.2/24']}]}});
+    await t.view.render(await t.view.load());
+    assert(t.nodes.some(n=>n.textContent==='已加入网络'));
+    assert(t.nodes.some(n=>n.tag==='small'&&n.textContent==='zt123'));
+    assert(!t.nodes.some(n=>n.textContent==='状态未报告'));
 });
 test('homepage stop and restart need explicit confirmation',async()=>{
     const t=setup('johnny-home.js'); assert.equal(typeof t.view.render,'function'); await t.view.render(await t.view.load());
@@ -68,6 +109,18 @@ test('homepage status failure disables controls and duplicate rendering replaces
     await t.view.render(await t.view.load()); assert.equal(t.polls.length,1);
     t.setStatus(new Error('offline')); await t.polls[0]();
     assert(t.button('开启').disabled); assert(t.nodes.some(n=>n.textContent.includes('状态读取失败')));
+});
+test('homepage cannot revive success after a failed refresh or removed network recovers',async()=>{
+    for(const unavailable of [new Error('offline'),{system:{},zerotier:{networks:[]}}]){
+        const t=setup('johnny-home.js'),network={id:'0123456789abcdef',status:'OK',portDeviceName:'zt123'};
+        const context={boot:'boot-1',running:true,node:{online:true,address:'node-1'},network},target={ip:'192.168.8.2',port:'443'};
+        const status={system:{},zerotier:{...context,networks:[network]}};
+        t.setStatus(status);await t.view.render(await t.view.load());
+        t.connectivity.target(network.id,target);t.connectivity.result(context,target,{outcome:'passed',timestamp:100});
+        t.setStatus(unavailable);await t.view.refresh();
+        t.setStatus(status);await t.view.refresh();
+        assert.match(t.connectivity.summary(context).label,/需重新检测/);
+    }
 });
 test('ZeroTier authorization button only checks actual state and never fakes readiness',async()=>{
     const t=setup('johnny-zerotier.js'); assert.equal(typeof t.view.render,'function');

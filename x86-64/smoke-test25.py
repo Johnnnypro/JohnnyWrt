@@ -54,6 +54,7 @@ test ! -e /usr/sbin/quickstart
 test ! -e /usr/lib/lua/luci/controller/quickstart.lua
 test ! -e /usr/lib/lua/luci/controller/store.lua
 sh /tmp/test-dashboard-api.sh
+sh /tmp/test-custom-css.sh
 sh /tmp/test-meow-actions.sh
 ucode /tmp/test-network-apply.uc
 test -z "$(jsonfilter -i /usr/share/luci/menu.d/luci-base.json -e '@["admin/nas"].title')"
@@ -86,6 +87,7 @@ done
 # The guest disk is disposable; test-only packages never enter the ISO.
 apk update
 apk add kmod-veth kmod-dummy
+sh /tmp/test-johnny-probe.sh
 fw4 check
 ip link add zttest001 type dummy
 ip link set zttest001 up
@@ -191,7 +193,7 @@ echo JOHNNY_BOOT_TEST_PASSED
 plans = image.parent / 'network-test-plans.json'
 subprocess.run(['node', str(Path(__file__).with_name('network-test-plans.js')), str(plans)], check=True)
 inputs = [(name, Path(__file__).with_name(name)) for name in
-          ('test-ui-layout.sh', 'test-dashboard-api.sh', 'test-meow-actions.sh', 'test-network-apply.uc')]
+          ('test-ui-layout.sh', 'test-dashboard-api.sh', 'test-meow-actions.sh', 'test-network-apply.uc', 'test-johnny-probe.sh', 'test-johnny-probe.uc', 'test-custom-css.sh')]
 inputs.append(('johnny-network-plans.json', plans))
 for name, source in inputs:
     content = source.read_text(encoding='utf-8').rstrip('\n') + '\n'

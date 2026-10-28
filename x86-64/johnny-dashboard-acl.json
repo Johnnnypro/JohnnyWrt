@@ -6,7 +6,7 @@
       "uci": ["network", "dhcp", "firewall", "meowx", "zerotier"]
     },
     "write": {
-      "ubus": { "luci.johnny": ["join", "meow_action"], "luci.meowx": ["panel_profile", "switch_profile", "refresh_subscription"] },
+      "ubus": { "luci.johnny": ["join", "meow_action", "probe"], "luci.meowx": ["panel_profile", "switch_profile", "refresh_subscription"] },
       "uci": ["network", "dhcp", "firewall", "meowx"]
     }
   }

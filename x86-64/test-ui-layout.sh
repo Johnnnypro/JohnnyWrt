@@ -7,8 +7,11 @@ root=$(mktemp -d /tmp/johnny-ui-test.XXXXXX)
 trap 'rm -rf "$root"; rm -f "$root.before" "$root.after"' EXIT
 menu=/usr/share/luci/menu.d
 flash=/www/luci-static/resources/view/system/flash.js
+footer=/usr/share/ucode/luci/template/themes/aurora/footer.ut
 mkdir -p "$root$menu" "$(dirname "$root$flash")"
+mkdir -p "$(dirname "$root$footer")"
 cp "$source_root$flash" "$root$flash"
+cp "$source_root$footer" "$root$footer"
 for name in luci-base luci-app-zerotier luci-app-meowx; do
     cp "$source_root$menu/$name.json" "$root$menu/"
 done
@@ -27,6 +30,7 @@ ucode -e '
 ' "$root"
 grep -qF "'require johnny.update as johnnyUpdate';" "$root$flash"
 grep -qF "'johnny_online_update'" "$root$flash"
+test "$(grep -c 'johnny/custom-style.js' "$root$footer")" = 1
 # Integration must keep all three native actions.
 for handler in handleBackup handleRestore handleSysupgrade; do
     grep -q "$handler" "$root$flash"

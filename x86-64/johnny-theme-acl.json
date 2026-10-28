@@ -1,0 +1,13 @@
+{
+  "luci-app-johnny-theme": {
+    "description": "JohnnyWrt custom appearance",
+    "read": {
+      "ubus": { "file": ["read"] },
+      "file": { "/etc/johnny/theme.css": ["read"] }
+    },
+    "write": {
+      "ubus": { "file": ["write"] },
+      "file": { "/etc/johnny/theme.css": ["write"] }
+    }
+  }
+}

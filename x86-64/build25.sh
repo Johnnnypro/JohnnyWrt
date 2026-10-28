@@ -7,7 +7,7 @@ if [ "${CUSTOM_BYPASS:-0}" = "1" ]; then
   CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-zerotier-zh-cn"
   CUSTOM_PACKAGES="$CUSTOM_PACKAGES meowx-core meowx luci-app-meowx luci-i18n-meowx-zh-cn"
   CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-theme-aurora"
-  CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-mod-rpc luci-lib-ipkg luci-compat libuci-lua"
+  CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-mod-rpc luci-lib-ipkg luci-compat libuci-lua ucode-mod-socket ip-full"
 fi
 echo "第三方apk软件包: $CUSTOM_PACKAGES"
 LOGFILE="/tmp/uci-defaults-log.txt"
@@ -91,11 +91,19 @@ if [ "${CUSTOM_BYPASS:-0}" = "1" ]; then
   cp custom25/johnny-update-acl.json files/usr/share/rpcd/acl.d/johnny-update.json
   mkdir -p files/usr/share/rpcd/ucode files/www/luci-static/resources/view/johnny
   cp custom25/johnny-dashboard.uc files/usr/share/rpcd/ucode/luci.johnny
+  cp custom25/johnny-probe.uc files/usr/libexec/johnny-probe.uc
   cp custom25/johnny-dashboard-acl.json files/usr/share/rpcd/acl.d/johnny.json
+  cp custom25/johnny-theme-acl.json files/usr/share/rpcd/acl.d/johnny-theme.json
   cp custom25/johnny-menu.json files/usr/share/luci/menu.d/johnny.json
   cp custom25/johnny-model.js files/www/luci-static/resources/johnny/model.js
+  cp custom25/johnny-connectivity.js files/www/luci-static/resources/johnny/connectivity.js
+  cp custom25/johnny-custom-style.js files/www/luci-static/resources/johnny/custom-style.js
+  mkdir -p files/etc/johnny files/lib/upgrade/keep.d
+  touch files/etc/johnny/theme.css
+  ln -sf /etc/johnny/theme.css files/www/luci-static/resources/johnny/custom.css
+  printf '/etc/johnny/theme.css\n' > files/lib/upgrade/keep.d/johnny-theme
   cp custom25/johnny.css custom25/zerotier.png files/www/luci-static/resources/johnny/
-  for view in home network zerotier; do
+  for view in home network zerotier theme; do
     cp "custom25/johnny-$view.js" "files/www/luci-static/resources/view/johnny/$view.js"
   done
   cp custom25/30-johnny-zt-lan.nft files/etc/nftables.d/

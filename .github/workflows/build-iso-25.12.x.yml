@@ -57,7 +57,7 @@ jobs:
           sh x86-64/test-ssh-qos.sh
           sh x86-64/test-custom25.sh
           sh x86-64/test-distfeeds.sh
-          node --test x86-64/test-update-ui.js x86-64/test-johnny-model.js x86-64/test-johnny-ui.js
+          node --test x86-64/test-update-ui.js x86-64/test-johnny-model.js x86-64/test-johnny-ui.js x86-64/test-johnny-connectivity.js x86-64/test-johnny-theme.js x86-64/test-johnny-theme-ui.js x86-64/test-custom-style.js
           python3 x86-64/test-upgrade-readiness.py
           python3 x86-64/test-retention-evidence.py
           python3 x86-64/test-smoke-input.py
@@ -70,6 +70,7 @@ jobs:
           sh -n x86-64/90-zerotier-rebind
           sh -n x86-64/johnny-meow-action
           sh -n x86-64/test-dashboard-api.sh
+          sh -n x86-64/test-johnny-probe.sh
           node x86-64/preflight.js
           bash -n x86-64/build25.sh
           python3 -m py_compile x86-64/smoke-test25.py x86-64/test-sysupgrade.py
@@ -116,7 +117,7 @@ jobs:
         run: |
           manifest=$(find bin/targets/x86/64 -maxdepth 1 -name '*.manifest' -print -quit)
           test -n "$manifest"
-          for package in meowx-core meowx luci-app-meowx luci-i18n-meowx-zh-cn zerotier luci-app-zerotier luci-theme-aurora luci-mod-rpc luci-lib-ipkg luci-compat libuci-lua; do
+          for package in meowx-core meowx luci-app-meowx luci-i18n-meowx-zh-cn zerotier luci-app-zerotier luci-theme-aurora luci-mod-rpc luci-lib-ipkg luci-compat libuci-lua ucode-mod-socket ip-full; do
             grep -E "^${package} - " "$manifest" || exit 1
           done
           if grep -E '^(luci-app-store|quickstart|luci-app-quickstart|luci-i18n-quickstart-[^ ]+) - ' "$manifest"; then exit 1; fi
@@ -214,7 +215,9 @@ jobs:
           - 在线更新来源为 Johnnnypro/JohnnyWrt；旧仓库的已安装固件需先手动上传本版并保留配置，以后从新仓库在线更新。
           - 首页展示机器状态、MeowX 账户与订阅流量及服务操作、ZeroTier 状态；缺失数据如实显示待获取。
           - 网络向导使用原生应用与回滚保护，主路由需要独立 WAN/LAN 网口；不会复制 QuickStart 的辅助网口。
-          - 默认使用 Aurora 1.4.0 主题。
+          - 默认使用 Aurora 1.4.0 主题，支持跟随系统、浅色和深色；首页及向导使用成对的深浅色文字、背景和输入框配色。
+          - 主题切换旁新增“自定义主题”：粘贴 CSS 后保存并应用，可恢复默认。保留配置升级会保留样式，编辑页始终使用默认样式便于恢复。
+          - ZeroTier 新增手动目标 IP 与 TCP 端口检测，连接超时 5 秒，核对路由经过所选 ZeroTier 网卡；显示上次结果和时间，不自动重复探测，不代表两端内网设备均可互访。
           - 内置 luci-mod-rpc、luci-lib-ipkg 和 luci-compat；LuCI RPC 随 Web 服务启动。系统使用 APK，旧 ipkg RPC 的软件包管理功能仍依赖 opkg，不能据此认定兼容 APK。
           - 默认主机名 JohnnyWrt，保留配置升级保留原有主机名；使用原始 Johnny Logo 标签页图标；底层版本信息保持 ImmortalWrt，避免软件源及内核包不匹配。
           - 软件源校正为 ImmortalWrt 官方源，保留版本号、架构和内核 ABI；构建中实际更新列表并安装匹配内核的测试模块。

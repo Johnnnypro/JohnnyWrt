@@ -13,7 +13,7 @@ case "$(uci -q get system.@system[0].hostname)" in
 esac
 uci commit system
 
-# Aurora exposes favicon tokens; no theme template or release metadata edits.
+# Aurora exposes favicon tokens; keep release metadata untouched.
 touch /etc/config/aurora
 uci -q get aurora.theme >/dev/null || uci set aurora.theme='theme'
 uci set aurora.theme.logo_svg='johnnywrt.svg'

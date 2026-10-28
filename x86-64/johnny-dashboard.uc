@@ -3,6 +3,7 @@ import { readfile, writefile, popen, glob, mkdir, rmdir } from 'fs';
 import { cursor } from 'uci';
 import { connect } from 'ubus';
 import { load_profile } from '/etc/meowx/ucode/include.uc';
+import { probe } from '/usr/libexec/johnny-probe.uc';
 
 function quote(value) { return "'" + replace(`${value ?? ''}`, "'", "'\\''") + "'"; }
 function command(cmd) {
@@ -42,6 +43,7 @@ function node() {
     return data ? { address: data.address, online: data.online, version: data.version } : {};
 }
 function networks() { return zt_api('/network') || []; }
+function boot() { return trim(readfile('/proc/sys/kernel/random/boot_id') || ''); }
 function valid_id(id) { return type(id) == 'string' && match(id, /^[0-9a-fA-F]{16}$/); }
 function pending(config) {
     if (length(cursor().changes(config) || {})) return true;
@@ -111,7 +113,7 @@ function status() {
         release: board.release?.description, uptime: info.uptime, memory: info.memory, load: info.load,
         cpu: { total, idle: (cpu[3] || 0) + (cpu[4] || 0) },
         storage: trim(command('df -Pk /overlay | tail -1') || '') }, interfaces,
-        meowx: meow(), zerotier: { running: running('zerotier'), node: node(), networks: networks(), lan: lan_support() } };
+        meowx: meow(), zerotier: { boot: boot(), running: running('zerotier'), node: node(), networks: networks(), lan: lan_support() } };
 }
 function join_network(id) {
     if (!valid_id(id)) return { error: '网络 ID 必须是 16 位十六进制字符' };
@@ -161,9 +163,14 @@ return { 'luci.johnny': {
         return { accepted: true };
     } },
     join: { args: { id: '' }, call: req => join_network(req.args.id) },
+    probe: { args: { id: '', ip: '', port: 0 }, call: req => {
+        if (!valid_id(req.args.id)) return { error: '无效的网络 ID' };
+        let found = filter(networks(), n => lc(n.id || '') == lc(req.args.id));
+        return probe(found[0], req.args.ip, req.args.port);
+    } },
     check: { args: { id: '' }, call: req => {
         if (!valid_id(req.args.id)) return { error: '无效的网络 ID' };
         let found = filter(networks(), n => lc(n.id || '') == lc(req.args.id));
-        return { running: running('zerotier'), node: node(), network: found[0], lan: lan_support() };
+        return { boot: boot(), running: running('zerotier'), node: node(), network: found[0], lan: lan_support() };
     } }
 } };

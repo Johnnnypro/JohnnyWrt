@@ -34,7 +34,8 @@ class SmokeInputTest(unittest.TestCase):
             target = Path(directory)
             for name in ('smoke-test25.py', 'network-test-plans.js', 'johnny-model.js',
                          'test-ui-layout.sh', 'test-dashboard-api.sh', 'test-meow-actions.sh',
-                         'test-network-apply.uc'):
+                         'test-network-apply.uc', 'test-johnny-probe.sh',
+                         'test-johnny-probe.uc', 'test-custom-css.sh'):
                 shutil.copyfile(root / name, target / name)
             with (target / 'test-dashboard-api.sh').open('a', encoding='utf-8') as output:
                 output.write('\n#' + 'x' * 500 + '\n')
