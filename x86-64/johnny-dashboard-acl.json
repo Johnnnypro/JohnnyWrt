@@ -1,0 +1,13 @@
+{
+  "luci-app-johnny": {
+    "description": "JohnnyWrt home and network setup",
+    "read": {
+      "ubus": { "luci.johnny": ["status", "check"], "luci.meowx": ["panel_status", "profile"], "service": ["list"], "luci": ["getInitList", "getMountPoints"], "uci": ["get", "changes"] },
+      "uci": ["network", "dhcp", "firewall", "meowx", "zerotier"]
+    },
+    "write": {
+      "ubus": { "luci.johnny": ["join", "meow_action"], "luci.meowx": ["panel_profile", "switch_profile", "refresh_subscription"] },
+      "uci": ["network", "dhcp", "firewall", "meowx"]
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+    "admin/johnny-home": {
+        "title": "首页", "order": 0,
+        "action": { "type": "view", "path": "johnny/home" },
+        "depends": { "acl": ["luci-app-johnny"] }
+    },
+    "admin/johnny-network": {
+        "title": "网络向导", "order": 1,
+        "action": { "type": "view", "path": "johnny/network" },
+        "depends": { "acl": ["luci-app-johnny"] }
+    },
+    "admin/services/zerotier/setup": {
+        "title": "设置向导", "order": 0,
+        "action": { "type": "view", "path": "johnny/zerotier" },
+        "depends": { "acl": ["luci-app-johnny"] }
+    }
+}

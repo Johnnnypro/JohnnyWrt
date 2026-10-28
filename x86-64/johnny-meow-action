@@ -1,0 +1,16 @@
+#!/bin/sh
+# Launched only after the RPC owns the lock and saves the enabled flag.
+case "$1" in start|stop|reload|restart) action=$1 ;; *) exit 1 ;; esac
+trap 'rmdir /tmp/johnny-meow-action.lock' EXIT
+state=failed
+if /etc/init.d/meowx "$action" && [ ! -s /var/run/meowx/last_error ]; then
+    sleep 2
+    running=$(ubus call service list '{"name":"meowx"}' | jsonfilter -e '@.meowx.instances.*.running')
+    if [ "$action" = stop ]; then
+        case "$running" in *true*) ;; *) state=done ;; esac
+    else
+        case "$running" in *true*) state=done ;; esac
+    fi
+fi
+printf '{"action":"%s","state":"%s"}\n' "$action" "$state" > /tmp/johnny-meow-action.new
+mv /tmp/johnny-meow-action.new /tmp/johnny-meow-action.json
