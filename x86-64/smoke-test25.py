@@ -91,7 +91,7 @@ done
 # Updating and loading this exact kernel's module catches a mismatched feed.
 # The guest disk is disposable; test-only packages never enter the ISO.
 apk update
-apk add kmod-veth kmod-dummy
+apk add kmod-veth kmod-dummy tcpdump
 sh /tmp/test-johnny-probe.sh
 fw4 check
 ip link add zttest001 type dummy
@@ -129,6 +129,24 @@ test "$(uci get network.lan.proto)" = dhcp
 test "$(uci get firewall.johnny_zerotier.name)" = zerotier
 fw4 check
 # Simulate a remote site and a local NAS with NO default/return route.
+# Preserve the failed state before the disposable guest is destroyed. A later
+# successful rerun cannot explain an intermittent forwarding failure.
+tcpdump -i any -n -l -vv 'arp or (icmp and host 198.18.0.2)' > /tmp/johnny-nat-packets.log 2>&1 &
+trap '
+    status=$?
+    set +e
+    if [ "$status" -ne 0 ]; then
+        echo JOHNNY_NAT_FAILURE_STATE
+        nft list ruleset
+        ip -4 addr; ip route; ip neigh
+        ip netns exec johnny_remote ip route
+        ip netns exec johnny_nas ip route
+        ip netns exec johnny_nas ip neigh
+        cat /proc/net/nf_conntrack
+        tail -200 /tmp/johnny-nat-packets.log
+    fi
+    exit "$status"
+' EXIT
 ip netns add johnny_remote
 ip netns add johnny_nas
 ip link add ztqa0 type veth peer name remote0
