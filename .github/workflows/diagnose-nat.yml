@@ -1,0 +1,110 @@
+name: Diagnose NAT with saved original firmware
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  SAVED_FIRMWARE_SHA256: ae00845883050784f6382f9ba9ad6012165ea04774a8588b434815b494567587
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  prepare_saved_firmware:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      # Draft asset downloads require push access. Do not check out or run
+      # repository code in this job; it only reads and verifies fixed input.
+      contents: write
+    steps:
+      - name: Read and verify the unpublished diagnostic asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIAGNOSTIC_ASSET_ID: '687275828'
+        run: |
+          case "$DIAGNOSTIC_ASSET_ID" in
+            *[!0-9]*|'') echo 'Diagnostic release asset ID must be numeric' >&2; exit 1 ;;
+          esac
+          mkdir diagnostic
+          gh api --method GET -H 'Accept: application/octet-stream' "repos/Johnnnypro/JohnnyWrt/releases/assets/$DIAGNOSTIC_ASSET_ID" > diagnostic/firmware.img.gz
+          echo "$SAVED_FIRMWARE_SHA256  diagnostic/firmware.img.gz" | sha256sum -c -
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nat-input-${{ github.run_id }}
+          path: diagnostic/firmware.img.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  verify_saved_firmware:
+    needs: prepare_saved_firmware
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check out the fixed tests for the saved firmware
+        uses: actions/checkout@v6
+        with:
+          repository: Johnnnypro/JohnnyWrt
+          ref: 4dd8ca52d4e22ced9c7eebce63bd8766b076ff54
+          persist-credentials: false
+      - name: Read the verified input with read-only permissions
+        uses: actions/download-artifact@v4
+        with:
+          name: nat-input-${{ github.run_id }}
+          path: diagnostic
+      - name: Verify the original image before testing
+        run: |
+          echo "$SAVED_FIRMWARE_SHA256  diagnostic/firmware.img.gz" | sha256sum -c -
+          sha256sum diagnostic/firmware.img.gz > diagnostic/image-sha256-before.txt
+      - name: Check the 20 Python tests, 68 Node tests and serial input
+        run: |
+          python3 x86-64/test-upgrade-readiness.py
+          python3 x86-64/test-retention-evidence.py
+          python3 x86-64/test-smoke-input.py
+          node --test x86-64/test-update-ui.js x86-64/test-johnny-model.js x86-64/test-johnny-ui.js x86-64/test-johnny-connectivity.js x86-64/test-johnny-theme.js x86-64/test-johnny-theme-ui.js
+          sh -n x86-64/test-johnny-nat-diagnostics.sh
+          node x86-64/preflight.js
+          python3 x86-64/smoke-test25.py diagnostic/firmware.img.gz --check-input
+      - name: Install the normal CI test dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf xorriso squashfs-tools
+          python3 -m pip install paramiko==3.5.1
+      - name: Read and verify the fixed previous-release baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir previous-release
+          gh release download Johnnywrt-ISO-25.12.2-1793177592 --repo Johnnnnnnnyx/ImmortalWrt-ImageBuilder --pattern Johnnywrt-x86_64-squashfs-combined-efi.img.gz --dir previous-release
+          echo 'aaf4f7cc25d026f5e24d38affdfcf589c6f1f50ac8883c88ffd48edef9df1956  previous-release/Johnnywrt-x86_64-squashfs-combined-efi.img.gz' | sha256sum -c -
+          gzip -dc previous-release/Johnnywrt-x86_64-squashfs-combined-efi.img.gz > previous-release/base.img
+      - name: Verify the previous release boots and reboots normally
+        run: python3 x86-64/test-sysupgrade.py previous-release/base.img previous-release/base.img --reboot-only
+      - name: Verify full UEFI boot and functions with the CI serial transport
+        run: python3 x86-64/smoke-test25.py diagnostic/firmware.img.gz
+      - name: Verify old-to-new and new-to-new retained-settings upgrades
+        run: python3 x86-64/test-sysupgrade.py previous-release/base.img diagnostic/firmware.img.gz
+      - name: Verify the original image remains unchanged after testing
+        if: always()
+        run: |
+          sha256sum diagnostic/firmware.img.gz > diagnostic/image-sha256-after.txt
+          echo "$SAVED_FIRMWARE_SHA256  diagnostic/firmware.img.gz" | sha256sum -c -
+      - name: Save boot, NAT, reboot and retention evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nat-verification-${{ github.run_number }}
+          path: |
+            diagnostic/boot-test.log
+            diagnostic/image-sha256-*.txt
+            diagnostic/retention-*.json
+            diagnostic/upgrade-test.log
+            diagnostic/upgrade-test-screen.ppm
+            previous-release/upgrade-test.log
+            previous-release/upgrade-test-screen.ppm
+          retention-days: 7
