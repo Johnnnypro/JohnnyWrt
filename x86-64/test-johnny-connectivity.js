@@ -32,6 +32,12 @@ test('late results never overwrite an edited target',()=>{
     assert.equal(h.result(context,target,{outcome:'passed',timestamp:100}),false);
     assert.equal(h.read(context.network.id).result,undefined);
 });
+test('changing managed address and route acceptance invalidates the previous target result',()=>{
+    const {helper:h}=setup(),target={ip:'192.168.8.2',port:'443'};
+    const before={...context,network:{...context.network,allowManaged:true}};
+    h.target(context.network.id,target);h.result(before,target,{outcome:'passed',timestamp:100});
+    assert.match(h.summary({...before,network:{...before.network,allowManaged:false}}).label,/需重新检测/);
+});
 test('malformed or unavailable browser storage does not break a page',()=>{
     const {helper:h}=setup({'johnny-connectivity-v1':'{bad'});assert.equal(h.summary(context).label,'尚未检测');
     const bad={getItem(){throw Error('blocked');},setItem(){throw Error('blocked');}};

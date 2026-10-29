@@ -142,6 +142,26 @@ test('ZeroTier refresh tracks service changes and clears stale success on failur
     assert.notEqual(t.view.node.online,true);
     assert.equal(t.view.network,null);
 });
+test('ZeroTier distinguishes disabled managed addressing while retaining manual target detection',async()=>{
+    const t=readyProbe();
+    t.setStatus({zerotier:{running:true,node:{online:true},networks:[{id:'0123456789abcdef',status:'OK',allowManaged:false,assignedAddresses:['10.0.0.2/24']}],lan:{}}});
+    await t.view.render(await t.view.load());
+    assert(t.nodes.some(n=>n.textContent.includes('自动地址与路由未启用')));
+    assert(t.nodes.some(n=>n.href==='admin/services/zerotier/config'));
+    assert(t.nodes.some(n=>n.textContent==='已授权'));
+    assert.equal(t.button('开始检测').disabled,false);
+    t.view.probeIP.value='192.168.8.2';t.view.probePort.value='443';
+    await t.button('开始检测').click();
+    assert(t.calls.some(c=>c[0]==='probe'));
+    assert(!t.calls.some(c=>c[0]==='join'));
+});
+test('homepage does not label controller-only addresses as automatically applied',async()=>{
+    const t=setup('johnny-home.js');
+    t.setStatus({zerotier:{running:true,node:{online:true},networks:[{id:'0123456789abcdef',status:'OK',allowManaged:false,assignedAddresses:['10.0.0.2/24']}],lan:{}}});
+    await t.view.render(await t.view.load());
+    assert(t.nodes.some(n=>n.textContent==='控制器分配 IP（自动应用关闭）'));
+    assert(!t.nodes.some(n=>n.textContent==='已有地址与路由自动获取，无需重复填写。'));
+});
 test('network wizard previews bypass settings without applying and preserves fields on back',async()=>{
     const t=setup('johnny-network.js');
     t.uci.sections=(config,type)=>config==='network'&&type==='device'?[{'.name':'bridge',name:'br-lan',type:'bridge',ports:['eth0']}]:[];

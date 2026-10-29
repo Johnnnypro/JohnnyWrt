@@ -25,7 +25,7 @@ function read(id){
 function fingerprint(c){
     const n=c.network||{};
     if(!c.boot||!c.running||!c.node?.online||n.status!=='OK')return null;
-    return JSON.stringify([c.boot,c.node.address,n.id,n.portDeviceName,
+    return JSON.stringify([c.boot,c.node.address,n.id,n.portDeviceName,n.allowManaged,
         [...(n.assignedAddresses||[])].sort(),(n.routes||[]).map(r=>JSON.stringify(r)).sort(),
         (c.lan?.addresses||[]).map(a=>JSON.stringify(a)).sort()]);
 }

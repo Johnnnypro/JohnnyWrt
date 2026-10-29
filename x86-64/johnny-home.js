@@ -11,7 +11,7 @@
 const getStatus = rpc.declare({object:'luci.johnny',method:'status',expect:{'':{}}});
 const getAccount = rpc.declare({object:'luci.meowx',method:'panel_status',expect:{'':{}}});
 const action = rpc.declare({object:'luci.johnny',method:'meow_action',params:['action'],expect:{'':{}}});
-const statusNames = {ready:'已连接',denied:'等待授权',no_address:'等待分配 IP',offline:'节点离线',pending:'正在请求配置',not_found:'网络不存在',port_error:'接口异常',not_joined:'尚未加入网络'};
+const statusNames = {ready:'已连接',managed_disabled:'自动地址与路由未启用',denied:'等待授权',no_address:'等待分配 IP',offline:'节点离线',pending:'正在请求配置',not_found:'网络不存在',port_error:'接口异常',not_joined:'尚未加入网络'};
 function bytes(n) {
     if (n == null || !Number.isFinite(+n)) return '—';
     const units=['B','KB','MB','GB','TB']; let i=0;
@@ -135,7 +135,8 @@ return view.extend({
         const quota=model.quota(subscription||{}), account=this.account;
         const mxRate=model.rates(this.previous && {...this.previous.meowx,time:this.previous.time},
             {...mx,time:data.time});
-        const profile=E('select',{'aria-label':'当前订阅',disabled:readonly||null,change:ev=>{
+        const profileName=subscription?meowx.subscriptionName(subscription):(current?'本地配置':'尚未选择订阅');
+        const profile=E('select',{'aria-label':'当前订阅',title:profileName,disabled:readonly||null,change:ev=>{
             if(readonly)return;
             const value=ev.target.value;
             return this.perform(async()=>{
@@ -143,12 +144,12 @@ return view.extend({
                 if(!result?.success)throw new Error(result?.error||'切换订阅失败');
                 await this.reloadSubscriptions();
             });
-        }},[E('option',{value:current},subscription?meowx.subscriptionName(subscription):(current?'本地配置':'尚未选择订阅')),
+        }},[E('option',{value:current},profileName),
             ...subscriptions.filter(s=>s!==subscription).map(s=>E('option',{value:'subscription:'+s['.name']},meowx.subscriptionName(s)))]);
-        const accountNodes=account?.logged_in ? [E('span',{},' · '+(account.username||'订阅账户'))] :
+        const accountNodes=account?.logged_in ? [E('span',{title:account.username||'订阅账户'},account.username||'订阅账户')] :
             [E('span',{},account?'尚未登录订阅账户':'账户状态暂不可用'),link('登录／订阅设置','admin','services','meowx')];
         const updating=!!this.subscriptionUpdating;
-        const refresh=this.button(refreshIcon(),()=>this.updateSubscription(subscription['.name']),readonly||!subscription||mx.pending);
+        const refresh=this.button([refreshIcon(),E('span',{},'更新订阅')],()=>this.updateSubscription(subscription['.name']),readonly||!subscription||mx.pending);
         refresh.className='cbi-button jw-refresh'+(updating?' jw-refreshing':'');
         refresh.setAttribute('aria-label','更新订阅与用量');refresh.setAttribute('title','更新订阅与用量');
         refresh.setAttribute('aria-busy',String(updating));
@@ -160,11 +161,12 @@ return view.extend({
                 E('span',{},({rule:'规则模式',global:'全局模式',direct:'直连模式'}[mx.mode]||'模式待获取')),
                 E('span',{},mx.connections==null?'连接待获取':mx.connections+' 个连接')]),
             E('div',{class:'jw-subscription'},[
-                E('div',{class:'jw-subscription-heading'},[E('span',{},'当前订阅'),...accountNodes]),
                 E('div',{class:'jw-subscription-toolbar'},[
-                    E('div',{class:'jw-subscription-picker'},[profile,refresh]),
-                    E('span',{class:'jw-subtle'+(result?.good?' jw-subscription-ok':''),role:'status','aria-live':'polite'},
-                        updating?'正在更新订阅与用量…':result?.text||'')]),
+                    E('div',{class:'jw-subscription-picker'},[E('span',{},'当前订阅'),profile,
+                        ...(account?.logged_in?[E('div',{class:'jw-subscription-account'},accountNodes)]:[])]),refresh]),
+                ...(!account?.logged_in?[E('div',{class:'jw-subscription-account jw-subscription-account-unavailable'},accountNodes)]:[]),
+                E('div',{class:'jw-subtle jw-subscription-result'+(result?.good?' jw-subscription-ok':''),role:'status','aria-live':'polite'},
+                    updating?'正在更新订阅与用量…':result?.text||''),
                 E('div',{class:'jw-quota'},[
                     E('div',{class:'jw-quota-metrics'},[
                         E('div',{class:'jw-quota-used'},[E('span',{},'已使用'),E('div',{},[E('strong',{},bytes(quota.used)),E('small',{},' / '+bytes(quota.total))])]),
@@ -190,15 +192,15 @@ return view.extend({
             ...(networks.length?networks:[null]).map(n=>E('div',{class:'jw-network'},[
                 row('网络名称',n?.name||n?.id||'尚未加入网络'),
                 E('div',{class:'jw-row'},[E('span',{},'网络授权'),badge(n?(model.ztState(node,n).authorized?'已授权':statusNames[model.ztState(node,n).state]):'等待加入',model.ztState(node,n).authorized)]),
-                row('本机虚拟 IP',(n?.assignedAddresses||[]).join('、')||'等待自动获取')])),
+                row(n?.allowManaged===false?'控制器分配 IP（自动应用关闭）':'本机虚拟 IP',(n?.assignedAddresses||[]).join('、')||'等待控制器分配')])),
             E('div',{class:'jw-lan-panel'},[E('h4',{},'内网互访'),E('div',{class:'jw-lan-diagram'},[
                 E('span',{},[icon('router'),E('span',{},'本地内网')]),E('strong',{},'⇄'),E('span',{},[icon('router'),E('span',{},'远端内网')])]),
                 row('本地网段',lan.local.join('、')||'待获取'),
                 row('远端网段',lan.remote.length?'已识别 '+lan.remote.length+' 个':'等待控制器下发'),
-                row('内网路由',lan.remote.length?'已收到':'等待获取')]),
+                row('内网路由',networks.some(n=>n.allowManaged===false)?'部分网络未启用自动应用':lan.remote.length?'已收到':'等待获取')]),
             E('a',{class:'jw-connectivity-link',href:L.url('admin','services','zerotier','setup')+'#connectivity'},[
                 E('strong',{},'目标连通性'),E('span',{},connectivity.summary({...zt,id:networks[0]?.id,network:networks[0]}).label),E('span',{},'检测 ›')]),
-            E('p',{class:'jw-subtle'},'已有地址与路由自动获取，无需重复填写。'),
+            E('p',{class:'jw-subtle'},networks.some(n=>n.allowManaged===false)?'自动地址与路由未启用，请在服务设置中检查“允许受管”。已有设置会保留。':'已有地址与路由自动获取，无需重复填写。'),
             E('div',{class:'jw-actions jw-service-actions'},[link('设置向导','admin','services','zerotier','setup'),link('网络详情','admin','services','zerotier','interface')]),
             E('a',{class:'jw-zt-settings',href:L.url('admin','services','zerotier','config')},'⚙ 服务设置 ›')
         ],'johnny/zerotier.png',badge(node.online===true?'节点在线':'节点离线',node.online===true));

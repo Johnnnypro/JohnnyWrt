@@ -54,7 +54,7 @@ return baseclass.extend({
         if (network) {
             if (node.online !== true) state = 'offline';
             else if (network.status === 'ACCESS_DENIED') state = 'denied';
-            else if (network.status === 'OK') state = (network.assignedAddresses || []).length ? 'ready' : 'no_address';
+            else if (network.status === 'OK') state = network.allowManaged === false ? 'managed_disabled' : (network.assignedAddresses || []).length ? 'ready' : 'no_address';
             else if (network.status === 'NOT_FOUND') state = 'not_found';
             else if (network.status === 'PORT_ERROR') state = 'port_error';
             else state = 'pending';

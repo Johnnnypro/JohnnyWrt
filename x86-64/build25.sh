@@ -101,7 +101,7 @@ if [ "${CUSTOM_BYPASS:-0}" = "1" ]; then
   mkdir -p files/usr/bin files/etc/profile.d
   cp custom25/quickstart files/usr/bin/quickstart
   chmod 755 files/usr/bin/quickstart
-  printf '[ -t 1 ] && printf "\\n网络设置：输入 quickstart 修改管理 IP、网关和 DNS。\\n"\n' > files/etc/profile.d/90-johnny-network.sh
+  printf '[ -t 1 ] && printf "\\nNetwork settings: run quickstart to set the IP address, gateway and DNS.\\n"\n' > files/etc/profile.d/90-johnny-network.sh
   cp custom25/johnny.css custom25/johnny-native.css custom25/zerotier.png files/www/luci-static/resources/johnny/
   for view in home network zerotier theme; do
     cp "custom25/johnny-$view.js" "files/www/luci-static/resources/view/johnny/$view.js"

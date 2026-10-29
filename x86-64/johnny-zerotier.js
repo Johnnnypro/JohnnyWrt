@@ -10,9 +10,10 @@ const getStatus=rpc.declare({object:'luci.johnny',method:'status',expect:{'':{}}
 const join=rpc.declare({object:'luci.johnny',method:'join',params:['id'],expect:{'':{}}});
 const check=rpc.declare({object:'luci.johnny',method:'check',params:['id'],expect:{'':{}}});
 const probe=rpc.declare({object:'luci.johnny',method:'probe',params:['id','ip','port'],expect:{'':{}}});
-const labels={ready:'已连接',denied:'等待授权',no_address:'已授权，等待分配 IP',offline:'节点离线',pending:'正在请求网络配置',not_found:'网络不存在，请核对 ID',port_error:'虚拟接口异常',not_joined:'尚未加入网络'};
+const labels={ready:'已连接',denied:'等待授权',no_address:'已授权，等待分配 IP',managed_disabled:'自动地址与路由未启用',offline:'节点离线',pending:'正在请求网络配置',not_found:'网络不存在，请核对 ID',port_error:'虚拟接口异常',not_joined:'尚未加入网络'};
 function row(label,text){return E('div',{class:'jw-row'},[E('span',{},label),E('strong',{},text||'—')]);}
 function indicator(label,ok){return E('div',{class:'jw-checkline'},[E('span',{class:'jw-checkdot '+(ok?'jw-check-ok':'')},ok?'✓':'•'),E('span',{},label)]);}
+function canProbe(node,network){return node?.online===true&&network?.status==='OK'&&(network.assignedAddresses||[]).length>0;}
 return view.extend({
     context:function(){return {id:this.id,boot:this.boot,running:this.running,node:this.node,network:this.network,lan:this.lan};},
     targetChanged:function(){
@@ -20,7 +21,7 @@ return view.extend({
         this.probeError=null;this.drawProbe();
     },
     runProbe:async function(){
-        if(this.probing||!L.hasViewPermission()||model.ztState(this.node,this.network).state!=='ready')return;
+        if(this.probing||!L.hasViewPermission()||!canProbe(this.node,this.network))return;
         const target={ip:this.probeIP.value.trim(),port:this.probePort.value.trim()},context=this.context();
         if(!connectivity.valid(target)){this.probeError='请输入有效的 IP 地址和 1–65535 的 TCP 端口';this.drawProbe();return;}
         connectivity.target(this.id,target);this.probing=true;this.probeError=null;this.drawProbe();
@@ -37,7 +38,7 @@ return view.extend({
         if(!this.probeStatus)return;
         const summary=connectivity.summary(this.context()),r=summary.result;
         const messages={passed:'TCP 连接已建立',refused:'目标拒绝连接，请检查端口服务',timeout:'连接超时，请检查路由、防火墙及目标状态',unreachable:'目标不可达，请检查路由与链路',wrong_route:'目标路由未经过所选 ZeroTier 网络',error:'连接失败，请重试或检查服务'};
-        this.probeButton.disabled=!!this.probing||!L.hasViewPermission()||model.ztState(this.node,this.network).state!=='ready';
+        this.probeButton.disabled=!!this.probing||!L.hasViewPermission()||!canProbe(this.node,this.network);
         this.probeButton.textContent=this.probing?'检测中…':'开始检测';
         this.probeStatus.className='jw-probe-status jw-'+(this.probing?'neutral':summary.tone);
         this.probeStatus.replaceChildren(E('strong',{},this.probing?'检测中，TCP 超时 5 秒…':summary.label),
@@ -61,7 +62,7 @@ return view.extend({
     },
     draw:function(){
         const state=model.ztState(this.node||{},this.network),readonly=!L.hasViewPermission()||this.busy;
-        const authorized=state.authorized,ready=state.state==='ready',lan=this.lan||{};
+        const authorized=state.authorized,ready=state.state==='ready',managedDisabled=this.network?.allowManaged===false,lan=this.lan||{};
         const subnets=model.lanOverview(lan,this.network?[this.network]:[]);
         const step=!this.id?0:authorized?2:1;
         this.progress.replaceChildren(...['加入网络','面板授权','状态检查'].map((label,i)=>
@@ -88,8 +89,8 @@ return view.extend({
                     indicator(this.running?'服务运行正常':'服务状态待检查',this.running),
                     indicator(this.node?.online?'节点在线':'节点尚未在线',this.node?.online===true),
                     indicator(authorized?'网络授权通过':labels[state.state],authorized),
-                    indicator(ready?'虚拟 IP 已获取':'等待控制器分配虚拟 IP',ready),E('hr'),
-                    row('网络名称',this.network?.name||'尚未加入网络'),row('本机虚拟 IP',(this.network?.assignedAddresses||[]).join('、')||'等待自动获取')]),
+                    indicator(managedDisabled?labels.managed_disabled:ready?'虚拟 IP 已获取':'等待控制器分配虚拟 IP',ready),E('hr'),
+                    row('网络名称',this.network?.name||'尚未加入网络'),row(managedDisabled?'控制器分配 IP（自动应用关闭）':'本机虚拟 IP',(this.network?.assignedAddresses||[]).join('、')||(managedDisabled?'未分配':'等待自动获取'))]),
                 E('div',{class:'jw-check-panel'},[E('h4',{},'内网互访'),
                     indicator((lan.addresses||[]).length?'本地地址已识别':'等待本地网络',!!(lan.addresses||[]).length),
                     indicator(lan.to_lan&&lan.from_lan?'内网转发已配置':'内网转发待检查',lan.to_lan&&lan.from_lan),
@@ -97,10 +98,12 @@ return view.extend({
                     E('hr'),
                     row('本地内网',subnets.local.join('、')),
                     row('远端内网',subnets.remote.join('、')||'等待控制器下发')])]),
-                E('div',{class:'jw-warning'},[E('strong',{},ready?'基础连接已就绪，内网设备互访仍需实际验证。':'等待加入、授权和地址分配完成后继续检查。')]),
+                E('div',{class:'jw-warning'},[E('strong',{},managedDisabled?'自动地址与路由未启用；控制器分配的信息尚未自动应用。':ready?'基础连接已就绪，内网设备互访仍需实际验证。':'等待加入、授权和地址分配完成后继续检查。'),
+                    ...(managedDisabled?[E('p',{},'如需自动接收地址和内网路由，请在原生配置中启用“允许受管”。已有设置会保留；手动配置的网络仍可使用目标检测。')]:[])]),
                 E('div',{class:'jw-actions jw-check-actions'},[this.button('重新检查',()=>this.inspect(),!this.id||this.busy),
+                    ...(managedDisabled?[E('a',{class:'cbi-button',href:L.url('admin','services','zerotier','config')},'打开原生配置')]:[]),
                     E('a',{class:'cbi-button',href:L.url('admin','services','zerotier','interface')},'查看接口信息')]),
-                E('p',{class:'jw-subtle jw-centered'},'地址与路由由现有配置自动读取，无需手动填写。'),
+                E('p',{class:'jw-subtle jw-centered'},managedDisabled?'此处展示控制器分配的信息；实际手动配置请查看接口信息。':'地址与路由由现有配置自动读取，无需手动填写。'),
                 E('p',{class:'jw-subtle jw-centered'},'访问远端内网仍需控制器下发相应路由，并允许两端转发。')])
         );
         this.joinButton.disabled=readonly;

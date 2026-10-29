@@ -17,9 +17,17 @@ config interface 'lan'
  option proto 'static'
  option device 'br-lan'
  option ipaddr '192.168.2.1'
- option netmask '255.255.255.0'
+ option netmask '255.255.0.0'
+ option gateway '192.168.2.254'
+ list dns '9.9.9.9'
+ option peerdns '1'
  option hostname 'keep-host'
  option ip6assign '64'
+config device
+ option name 'br-lan'
+ option type 'bridge'
+ list ports 'eth0'
+ list ports 'eth2'
 config interface 'wan'
  option proto 'dhcp'
  option device 'eth1'
@@ -32,69 +40,98 @@ config dhcp 'lan'
  option ignore '0'
  option ra 'server'
  option dhcpv6 'server'
+ option ndp 'relay'
+config dhcp 'guest'
+ option interface 'guest'
+ option ignore '1'
 CONFIG
 cp "$root/config/network" "$root/original-network"
 cp "$root/config/dhcp" "$root/original-dhcp"
 unchanged() { cmp "$root/original-network" "$root/config/network"; cmp "$root/original-dhcp" "$root/config/dhcp"; test ! -e "$root/reloaded"; }
-# EOF or declined confirmation must leave byte-identical originals.
-printf '0\n' | sh "$script" > "$root/output"
-unchanged
-printf '2\n192.168.0.1\n255.255.255.0\n-\n1.1.1.1\nn\n0\n' | sh "$script" > "$root/output"
-unchanged
-printf '2\n192.168.0.1\n' | sh "$script" > "$root/output"
-unchanged
-for bad in '999.1.1.1' '127.0.0.1' '192.168.0.0' '192.168.0.255' '224.0.0.1'; do
- printf '2\n%s\n255.255.255.0\n-\n1.1.1.1\ny\n0\n' "$bad" | sh "$script" > "$root/output"
- unchanged
-done
-for values in '192.168.0.1|255.0.255.0|-|1.1.1.1' '192.168.0.1|255.255.255.0|192.168.2.1|1.1.1.1' '192.168.0.1|255.255.255.0|-|bad-dns'; do
- { printf '2\n'; printf '%s\n' "$values" | tr '|' '\n'; printf 'y\n0\n'; } | sh "$script" > "$root/output"
- unchanged
-done
-uci set network.wan.hostname=pending
-printf '2\n192.168.0.1\n255.255.255.0\n-\n1.1.1.1\ny\n' | sh "$script" > "$root/output" || true
-unchanged
-test "$(uci get network.wan.hostname)" = pending
-uci revert network
-# Retained/custom DHCP mappings must not disable another interface or leave LAN serving.
-for mapping in mismatch duplicate; do
- if [ "$mapping" = mismatch ]; then
-  uci set dhcp.lan.interface=guest
- else
-  uci set dhcp.extra=dhcp
-  uci set dhcp.extra.interface=lan
- fi
- uci commit dhcp
- cp "$root/config/dhcp" "$root/unsupported-dhcp"
- printf '3\ny\n' | sh "$script" > "$root/output" || true
- cmp "$root/original-network" "$root/config/network"
- cmp "$root/unsupported-dhcp" "$root/config/dhcp"
- test ! -e "$root/reloaded"
- cp "$root/original-dhcp" "$root/config/dhcp"
-done
-# Good input changes only the requested LAN values, with a visible preview.
-printf '2\n192.168.0.1\n255.255.255.0\n192.168.0.254\n1.1.1.1 8.8.8.8\ny\n' | sh "$script" > "$root/output"
-test "$(uci get network.lan.ipaddr)" = 192.168.0.1
-test "$(uci get network.lan.gateway)" = 192.168.0.254
-test "$(uci get network.lan.dns)" = '1.1.1.1 8.8.8.8'
-test "$(uci get network.lan.hostname)" = keep-host
-test "$(uci get network.lan.ip6assign)" = 64
-test "$(uci get network.wan.device)" = eth1
-cmp "$root/original-dhcp" "$root/config/dhcp"
-grep -q 'http://192.168.0.1' "$root/output"
-sleep 3
-test -e "$root/reloaded"
-rm "$root/reloaded"
+# Option 3 and a blank choice exit immediately, even if more input follows.
 printf '3\ny\n' | sh "$script" > "$root/output"
-test "$(uci get network.lan.proto)" = dhcp
-test -z "$(uci -q get network.lan.ipaddr)"
-test -z "$(uci -q get network.lan.dns)"
-test "$(uci get network.lan.peerdns)" = 1
-test "$(uci get dhcp.lan.ignore)" = 1
-test "$(uci get dhcp.lan.ra)" = disabled
-test "$(uci get dhcp.lan.dhcpv6)" = disabled
-test "$(uci get dhcp.lan.start)" = 100
-test -z "$(uci changes)"
-sleep 3
-test -e "$root/reloaded"
-echo 'PASS: console static/DHCP, validation, cancel/EOF, pending changes and unrelated settings'
+unchanged
+printf '\n2\n192.168.0.1\n\n192.168.0.254\n\ny\n' | sh "$script" > "$root/output"
+unchanged
+# Read-only display and the menu must be usable on an ASCII-only console.
+printf '1\n3\n' | sh "$script" > "$root/output"
+unchanged
+grep -q '1. Show network settings' "$root/output"
+grep -q '2. Set IP address, gateway and DNS' "$root/output"
+grep -q '3. Exit' "$root/output"
+grep -q 'Subnet mask: 255.255.0.0' "$root/output"
+if LC_ALL=C grep -q '[^[:print:][:space:]]' "$root/output"; then
+ echo 'FAIL: non-ASCII console output'; exit 1
+fi
+# EOF at every prompt or declined/blank confirmation leaves byte-identical originals.
+for input in '' '2\n' '2\n192.168.0.1\n' '2\n192.168.0.1\n\n' '2\n192.168.0.1\n\n192.168.0.254\n' '2\n192.168.0.1\n\n192.168.0.254\n\n'; do
+ printf '%b' "$input" | sh "$script" > "$root/output"
+ unchanged
+done
+for answer in n ''; do
+ printf '2\n192.168.0.1\n\n192.168.0.254\n\n%s\n3\n' "$answer" | sh "$script" > "$root/output"
+ unchanged
+ grep -q 'Save and apply? \[y/N\]' "$root/output"
+ grep -q 'Cancelled' "$root/output"
+done
+for bad in '999.1.1.1' '127.0.0.1' '192.168.0.0' '192.168.0.255' '224.0.0.1'; do
+ printf '2\n%s\n255.255.255.0\n-\n1.1.1.1\ny\n3\n' "$bad" | sh "$script" > "$root/output"
+ unchanged
+done
+# IP and gateway are required, and invalid masks/gateways/DNS are rejected.
+for values in '|255.255.255.0|192.168.2.254|1.1.1.1' '192.168.2.2|255.255.255.0||1.1.1.1' '192.168.0.1|255.0.255.0|-|1.1.1.1' '192.168.0.1|255.255.255.0|192.168.2.1|1.1.1.1' '192.168.0.1|255.255.255.0|-|bad-dns'; do
+ { printf '2\n'; printf '%s\n' "$values" | tr '|' '\n'; printf 'y\n3\n'; } | sh "$script" > "$root/output"
+ unchanged
+done
+for setting in network.wan.hostname dhcp.lan.start; do
+ uci set "$setting=pending"
+ if printf '2\n192.168.0.1\n\n192.168.0.254\n\ny\n' | sh "$script" > "$root/output"; then
+  echo 'FAIL: pending changes were accepted'; exit 1
+ fi
+ unchanged
+ test "$(uci get "$setting")" = pending
+ uci revert "${setting%%.*}"
+done
+# Compare every unrelated UCI setting, including bridge ports, WAN and IPv6.
+unrelated_network() { uci show network | sed '/^network\.lan\.\(proto\|ipaddr\|netmask\|gateway\|dns\|peerdns\)=/d'; }
+unrelated_network > "$root/unrelated-network"
+for mode in defaults explicit none; do
+ cp "$root/original-network" "$root/config/network"
+ case "$mode" in
+  defaults) printf '2\n192.168.0.1\n\n192.168.0.254\n\ny\n' ;;
+  explicit) printf '2\n192.168.0.1\n255.255.254.0\n192.168.1.254\n1.1.1.1 8.8.8.8\ny\n' ;;
+  none) printf '2\n192.168.0.1\n\n-\n-\ny\n' ;;
+ esac | sh "$script" > "$root/output"
+ test "$(uci get network.lan.proto)" = static
+ test "$(uci get network.lan.ipaddr)" = 192.168.0.1
+ test "$(uci get network.lan.peerdns)" = 0
+ case "$mode" in
+  defaults)
+   test "$(uci get network.lan.netmask)" = 255.255.255.0
+   test "$(uci get network.lan.gateway)" = 192.168.0.254
+   test "$(uci get network.lan.dns)" = 223.5.5.5
+   grep -q 'Subnet mask \[255.255.255.0\]' "$root/output"
+   grep -q 'DNS server \[223.5.5.5\]' "$root/output"
+   ;;
+  explicit)
+   test "$(uci get network.lan.netmask)" = 255.255.254.0
+   test "$(uci get network.lan.gateway)" = 192.168.1.254
+   test "$(uci get network.lan.dns)" = '1.1.1.1 8.8.8.8'
+   ;;
+  none)
+   test -z "$(uci -q get network.lan.gateway)"
+   test -z "$(uci -q get network.lan.dns)"
+   ;;
+ esac
+ unrelated_network > "$root/after-network"
+ cmp "$root/unrelated-network" "$root/after-network"
+ cmp "$root/original-dhcp" "$root/config/dhcp"
+ grep -q 'disconnect' "$root/output"
+ grep -q 'no automatic rollback' "$root/output"
+ grep -q 'http://192.168.0.1' "$root/output"
+ test -z "$(uci changes)"
+ sleep 3
+ test -e "$root/reloaded"
+ rm "$root/reloaded"
+done
+echo 'PASS: English console, exit/defaults/overrides, validation, cancel/EOF, pending changes and preserved settings'

@@ -41,6 +41,14 @@ test('online node cannot bypass network authorization or IP assignment', () => {
     assert.equal(ready.lanReachable, null);
     assert.equal(model.ztState({}, null).state, 'not_joined');
 });
+test('disabled managed addressing stays authorized without claiming automatic readiness', () => {
+    const network = { status: 'OK', assignedAddresses: ['10.8.0.3/24'], allowManaged: false };
+    assert.deepEqual(model.ztState({ online: true }, network), { state: 'managed_disabled', authorized: true, lanReachable: null });
+    assert.equal(model.ztState({ online: true }, { ...network, assignedAddresses: [] }).state, 'managed_disabled');
+    assert.equal(model.ztState({ online: true }, { ...network, allowManaged: true }).state, 'ready');
+    assert.equal(model.ztState({ online: false }, network).state, 'offline');
+    assert.equal(model.ztState({ online: true }, { ...network, status: 'ACCESS_DENIED' }).state, 'denied');
+});
 const env = { ports: ['eth0', 'eth1'], bridge: 'br_lan', interfaces: ['loopback', 'lan', 'wan', 'wan6', 'zerotier'], pending: false };
 const bypass = { role: 'bypass', lanPorts: ['eth0'], protocol: 'static', address: '192.168.50.5', mask: '255.255.255.0', gateway: '192.168.50.1', dns: ['1.1.1.1'] };
 test('bypass plan preserves unrelated services and disables LAN DHCP', () => {
