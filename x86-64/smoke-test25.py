@@ -16,6 +16,14 @@ log_path = image.parent / "boot-test.log"
 # This guest is disposable: the downloadable compressed image is never modified.
 checks = r'''
 set -ex
+. /tmp/test-johnny-nat-diagnostics.sh
+trap '
+    smoke_status=$?
+    set +e
+    johnny_nat_diagnostics_dump
+    exit "$smoke_status"
+' EXIT
+johnny_nat_diagnostics_start
 grep -F ' -F -z -P ' /etc/init.d/dropbear
 pid=$(cat /var/run/dropbear.*.pid | head -1)
 tr '\0' ' ' < "/proc/$pid/cmdline" | grep ' -z '
@@ -132,21 +140,6 @@ fw4 check
 # Preserve the failed state before the disposable guest is destroyed. A later
 # successful rerun cannot explain an intermittent forwarding failure.
 tcpdump -i any -n -l -vv 'arp or (icmp and host 198.18.0.2)' > /tmp/johnny-nat-packets.log 2>&1 &
-trap '
-    status=$?
-    set +e
-    if [ "$status" -ne 0 ]; then
-        echo JOHNNY_NAT_FAILURE_STATE
-        nft list ruleset
-        ip -4 addr; ip route; ip neigh
-        ip netns exec johnny_remote ip route
-        ip netns exec johnny_nas ip route
-        ip netns exec johnny_nas ip neigh
-        cat /proc/net/nf_conntrack
-        tail -200 /tmp/johnny-nat-packets.log
-    fi
-    exit "$status"
-' EXIT
 ip netns add johnny_remote
 ip netns add johnny_nas
 ip link add ztqa0 type veth peer name remote0
@@ -216,7 +209,7 @@ echo JOHNNY_BOOT_TEST_PASSED
 plans = image.parent / 'network-test-plans.json'
 subprocess.run(['node', str(Path(__file__).with_name('network-test-plans.js')), str(plans)], check=True)
 inputs = [(name, Path(__file__).with_name(name)) for name in
-          ('test-ui-layout.sh', 'test-dashboard-api.sh', 'test-meow-actions.sh', 'test-network-apply.uc', 'test-johnny-probe.sh', 'test-johnny-probe.uc', 'test-quickstart.sh')]
+          ('test-ui-layout.sh', 'test-dashboard-api.sh', 'test-meow-actions.sh', 'test-network-apply.uc', 'test-johnny-probe.sh', 'test-johnny-probe.uc', 'test-quickstart.sh', 'test-johnny-nat-diagnostics.sh')]
 inputs.append(('johnny-network-plans.json', plans))
 for name, source in inputs:
     content = source.read_text(encoding='utf-8').rstrip('\n') + '\n'
@@ -275,7 +268,8 @@ try:
                                      "\nJOHNNY_EOF\nsh /tmp/check.sh || echo JOHNNY_BOOT_TEST_FAILED\n").encode())
                 process.stdin.flush()
                 sent = True
-            if b"\nJOHNNY_BOOT_TEST_PASSED\r\n" in output:
+            if (b"\nJOHNNY_BOOT_TEST_PASSED\r\n" in output and
+                    b"\nJOHNNY_NAT_DIAGNOSTICS_END\r\n" in output):
                 passed = True
                 break
             if b"\nJOHNNY_BOOT_TEST_FAILED\r\n" in output:
