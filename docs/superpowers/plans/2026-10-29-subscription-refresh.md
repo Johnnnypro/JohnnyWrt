@@ -30,5 +30,5 @@ Interface: native `refreshSubscription(section_id)` → success/busy/applied/err
 Files: guest test additions, MAINTENANCE.md and this plan.
 Interface: same synthetic subscription endpoint exercised through real guest RPC, no private subscriptions.
 - [x] Test valid download/usage/application, invalid download and retained old cache/usage, busy and permissions with actual guest APIs.
-- [ ] Check Aurora/Argon/Bootstrap light/dark at desktop and390px, icons/keyboard/focus, long names and unknown values.
-- [ ] Record evidence, review only this new change, commit/push main, and continue the existing original-artifact diagnostic and final-release gates.
+- [x] Check Aurora/Argon/Bootstrap light/dark at desktop and390px, icons/keyboard/focus, long names and unknown values.
+- [x] Record evidence, review only this new change, commit/push main, and continue the existing original-artifact diagnostic and final-release gates.
