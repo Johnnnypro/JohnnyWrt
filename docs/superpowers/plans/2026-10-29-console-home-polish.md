@@ -38,5 +38,6 @@
 
 - Existing isolated clone uses branch `fix/console-and-service-switch` from `6c32314`.
 - Switch regression reproduced Aurora's centered pseudo-element before the fix; explicit left alignment passed 32 geometry cases.
-- Latest completed release build #9 succeeded. Earlier #6/#7 NAT investigation and successful saved-image CI diagnosis remain documented; no claim that the historical intermittent cause was fixed.
+- Release build #10 (40826456090), source `5964794`, passed the complete firmware, SSH, old-to-new/new-to-new retention and ISO checks. All five public assets match GitHub digests and the checksum file; the upgrade image matches the CI artifact, and both upgrade rounds match the original retention baseline. Full hashes and limitations are recorded in `MAINTENANCE.md`.
+- Earlier #6/#7 NAT investigation and successful saved-image CI diagnosis remain documented; no claim that the historical intermittent cause was fixed.
 - Official stable release directory rechecked on 2026-10-29: latest stable is 25.12.2.
