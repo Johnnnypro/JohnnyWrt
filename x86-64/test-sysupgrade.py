@@ -194,12 +194,6 @@ test -s /etc/zerotier/identity.secret
     baseline = retention_snapshot(client, retained, 'baseline')
     # Round 1 validates old -> new; round 2 validates the new upgrade baseline.
     for round_number in (1, 2):
-        if round_number == 2:
-            # The old fixture predates custom themes; seed after its upgrade.
-            run(client, "printf '/* retained custom theme */\\n' > /etc/johnny/theme.css")
-            retained.append('/etc/johnny/theme.css')
-            theme = retention_snapshot(client, ['/etc/johnny/theme.css'], 'theme-baseline')
-            baseline['files'].update(theme['files'])
         backup_list = run(client, 'sysupgrade -l').splitlines()
         for path in retained:
             assert path in backup_list, f'Not preserved by sysupgrade: {path}'
@@ -240,6 +234,8 @@ grep -F ' -F -z -P ' /etc/init.d/dropbear
 pid=$(cat /var/run/dropbear.*.pid | head -1)
 tr '\0' ' ' < "/proc/$pid/cmdline" | grep ' -z '
 test ! -e /usr/sbin/quickstart
+test -x /usr/bin/quickstart
+test ! -e /www/luci-static/resources/johnny/custom-style.js
 test -s /usr/share/rpcd/ucode/luci.johnny
 for page in home network zerotier; do test -s /www/luci-static/resources/view/johnny/$page.js; done
 ubus call luci.johnny status > /tmp/dashboard-status.json

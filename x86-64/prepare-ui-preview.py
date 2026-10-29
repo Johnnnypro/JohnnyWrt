@@ -19,7 +19,6 @@ script = (root / 'ui-preview/fixture.js').read_text().replace('/* AURORA_THEME_S
 footer = urlopen(base + 'ucode/template/themes/aurora/footer.ut').read().decode()
 desktop = re.search(r'<div class="theme-switcher">.*?</div>', footer, re.S).group()
 mobile = re.search(r'<div class="theme-switcher mobile">.*?</div>', header, re.S).group()
-(output / 'custom.css').write_text('')
 (output / 'controls.html').write_text('''<!doctype html><html lang="zh-CN"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Aurora native theme controls</title><link rel="stylesheet" href="aurora.css">
@@ -27,8 +26,7 @@ mobile = re.search(r'<div class="theme-switcher mobile">.*?</div>', header, re.S
 <script>''' + theme + '''</script></head><body data-page="admin-johnny-home">
 <h1>原生主题栏回归检查</h1><section class="mobile-nav-footer"><p>手机菜单主题栏</p>'''
     + mobile + '</section><footer><span>桌面页脚主题栏</span>' + desktop + '''</footer>
-<script>const L={resource:()=>"custom.css",url:(...p)=>"/cgi-bin/luci/"+p.join("/")};</script>
-<script src="source/johnny-custom-style.js"></script></body></html>''')
+</body></html>''')
 for name in ('index.html', 'mobile.html'):
     shutil.copyfile(root / 'ui-preview' / name, output / name)
 (output / 'controls-mobile.html').write_text((root / 'ui-preview/mobile.html').read_text().replace('index.html', 'controls.html'))

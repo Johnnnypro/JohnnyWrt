@@ -167,8 +167,8 @@ return view.extend({
             E('section',{class:'jw-card jw-protection'},[E('h3',{},[icon('shield'),'应用保护']),
                 ...[['先预览变更内容','在应用前显示将要修改的设置。'],['应用后确认连接','应用后按页面提示重新连接并确认。'],['未确认则恢复原设置','若在限定时间内未确认，将自动恢复原来的网络设置。']].map(([title,text])=>E('div',{},[
                     E('span',{class:'jw-step-circle'},'✓'),E('div',{},[E('strong',{},title),E('p',{},text)])]))])]);
-        return E('div',{class:'jw-page jw-network-wizard'},[E('link',{rel:'stylesheet',href:L.resource('johnny/johnny.css')}),
-            E('header',{class:'jw-header'},[E('div',{},[E('h2',{},'网络向导'),E('p',{},'设置主路由或旁路由的接入网口、管理地址和 DNS。')])]),
+        return E('div',{class:'jw-page jw-network-wizard'},[E('link',{rel:'stylesheet',href:L.resource('johnny/johnny.css')+'?v='+encodeURIComponent(L.env?.resource_version||'development')}),
+            E('div',{class:'jw-header'},[E('div',{},[E('h2',{},'网络向导'),E('p',{},'设置主路由或旁路由的接入网口、管理地址和 DNS。')])]),
             ...(this.env.pending||this.env.complex?[E('p',{class:'alert-message warning'},this.env.pending?'请先应用或撤销已有设置，再重新打开向导。':'检测到自定义网络结构，请使用高级网络设置，以保留 VLAN 和现有接口。')]:[]),
             this.steps,E('div',{class:'jw-network-layout'},[this.content,sidebar])]);
     },handleSaveApply:null,handleSave:null,handleReset:null

@@ -1,0 +1,14 @@
+/* Contrast pairs for native LuCI forms. Keep each theme's layout and controls. */
+:root{--jn-text:#172334;--jn-surface:#f7f9fc;--jn-link:#005bb5;--jn-border:#71829b;--jn-warning:#874900;--jn-warning-bg:#fff4e4}
+:root[data-darkmode="true"]{--jn-text:#edf2fa;--jn-surface:#18212e;--jn-link:#7cbdff;--jn-border:#71829b;--jn-warning:#ffd082;--jn-warning-bg:#392b1c}
+#view:not(:has(.jw-page)) .cbi-button{color:var(--jn-text)!important;background:var(--jn-surface)!important;border-color:var(--jn-border)!important}
+#view:not(:has(.jw-page)) :is(.cbi-button-action,.cbi-button-apply,.cbi-button-reload,.cbi-button-add,.cbi-button-edit){color:#fff!important;background:#005fcb!important;border-color:#005fcb!important}
+#view:not(:has(.jw-page)) :is(.cbi-button-positive,.cbi-button-save,.cbi-button-fieldadd){color:#fff!important;background:#08623f!important;border-color:#08623f!important}
+#view:not(:has(.jw-page)) :is(.cbi-button-negative,.cbi-button-reset,.cbi-button-remove){color:var(--jn-warning)!important;background:var(--jn-warning-bg)!important;border-color:var(--jn-border)!important}
+#view:not(:has(.jw-page)) .ifacebox-head{color:#172334!important;background:rgb(var(--zone-color-rgb,220,228,238))!important}
+#view:not(:has(.jw-page)) :is(.cbi-section-descr,.cbi-map-descr){color:var(--jn-text)!important}
+#view:not(:has(.jw-page)) :is(input[type="text"],input[type="password"],input[type="number"],textarea,select,.cbi-dropdown:not(.cbi-button)){color:var(--jn-text)!important;background:var(--jn-surface)!important;border-color:var(--jn-border)!important}
+#view:not(:has(.jw-page)) .cbi-tabmenu li a{color:var(--jn-text)!important;background:var(--jn-surface)!important}
+#view:not(:has(.jw-page)) .cbi-button :is(.more,.open){color:inherit!important;background:inherit!important}
+#view:not(:has(.jw-page)) :is(p,.cbi-value-description) a:not(.cbi-button),#view a[href="https://github.com/Johnnnypro/JohnnyWrt/releases"]{color:var(--jn-link)!important}
+@media(max-width:600px){#view:not(:has(.jw-page)) table.cbi-section-table{display:block;max-width:100%;overflow-x:auto}}

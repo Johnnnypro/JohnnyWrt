@@ -131,8 +131,8 @@ return view.extend({
         },!L.hasViewPermission());
         if(this.poller)poll.remove(this.poller);this.poller=()=>this.inspect();poll.add(this.poller,5);this.draw();
         return E('div',{class:'jw-page jw-zt-wizard'},[
-            E('link',{rel:'stylesheet',href:L.resource('johnny/johnny.css')}),
-            E('header',{class:'jw-zt-header'},[E('img',{src:L.resource('johnny/zerotier.png'),class:'jw-logo',alt:''}),
+            E('link',{rel:'stylesheet',href:L.resource('johnny/johnny.css')+'?v='+encodeURIComponent(L.env?.resource_version||'development')}),
+            E('div',{class:'jw-zt-header'},[E('img',{src:L.resource('johnny/zerotier.png'),class:'jw-logo',alt:''}),
                 E('div',{},[E('h2',{},'ZeroTier'),E('p',{},'家庭与公司内网互联 · 地址和路由自动读取。')])]),this.banner,this.progress,
             E('details',{class:'jw-card jw-identity',open:!model.ztState(this.node,this.network).authorized||null},[this.identitySummary,E('h3',{},'1. 加入网络'),
                 E('div',{class:'jw-id-row'},[E('span',{},'网络 ID'),this.input,this.joinState,this.joinButton]),

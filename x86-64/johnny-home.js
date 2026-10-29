@@ -209,8 +209,8 @@ return view.extend({
         this.data=initial.status;this.account=initial.account;this.history=[];this.proxyHistory=[];this.statHistory=[];this.content=E('div');
         if(this.poller) poll.remove(this.poller);
         this.poller=()=>this.refresh();poll.add(this.poller,5);this.draw();
-        return E('div',{class:'jw-page'},[E('link',{rel:'stylesheet',href:L.resource('johnny/johnny.css')}),
-            E('header',{class:'jw-header'},[E('div',{},[E('h2',{},'设备概览'),E('p',{},'JohnnyWrt · ImmortalWrt 25.12 · x86/64')]),link('网络向导','admin','johnny-network')]),this.content]);
+        return E('div',{class:'jw-page'},[E('link',{rel:'stylesheet',href:L.resource('johnny/johnny.css')+'?v='+encodeURIComponent(L.env?.resource_version||'development')}),
+            E('div',{class:'jw-header'},[E('div',{},[E('h2',{},'设备概览'),E('p',{},'JohnnyWrt · ImmortalWrt 25.12 · x86/64')]),link('网络向导','admin','johnny-network')]),this.content]);
     },
     handleSaveApply:null,handleSave:null,handleReset:null
 });

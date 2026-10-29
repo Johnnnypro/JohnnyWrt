@@ -97,12 +97,12 @@ if [ "${CUSTOM_BYPASS:-0}" = "1" ]; then
   cp custom25/johnny-menu.json files/usr/share/luci/menu.d/johnny.json
   cp custom25/johnny-model.js files/www/luci-static/resources/johnny/model.js
   cp custom25/johnny-connectivity.js files/www/luci-static/resources/johnny/connectivity.js
-  cp custom25/johnny-custom-style.js files/www/luci-static/resources/johnny/custom-style.js
-  mkdir -p files/etc/johnny files/lib/upgrade/keep.d
-  touch files/etc/johnny/theme.css
-  ln -sf /etc/johnny/theme.css files/www/luci-static/resources/johnny/custom.css
-  printf '/etc/johnny/theme.css\n' > files/lib/upgrade/keep.d/johnny-theme
-  cp custom25/johnny.css custom25/zerotier.png files/www/luci-static/resources/johnny/
+  cp custom25/johnny-appearance.js files/www/luci-static/resources/johnny/appearance.js
+  mkdir -p files/usr/bin files/etc/profile.d
+  cp custom25/quickstart files/usr/bin/quickstart
+  chmod 755 files/usr/bin/quickstart
+  printf '[ -t 1 ] && printf "\\n网络设置：输入 quickstart 修改管理 IP、网关和 DNS。\\n"\n' > files/etc/profile.d/90-johnny-network.sh
+  cp custom25/johnny.css custom25/johnny-native.css custom25/zerotier.png files/www/luci-static/resources/johnny/
   for view in home network zerotier theme; do
     cp "custom25/johnny-$view.js" "files/www/luci-static/resources/view/johnny/$view.js"
   done

@@ -1,13 +1,7 @@
 {
-  "luci-app-johnny-theme": {
-    "description": "JohnnyWrt custom appearance",
-    "read": {
-      "ubus": { "file": ["read"] },
-      "file": { "/etc/johnny/theme.css": ["read"] }
-    },
-    "write": {
-      "ubus": { "file": ["write"] },
-      "file": { "/etc/johnny/theme.css": ["write"] }
+    "luci-app-johnny-theme": {
+        "description": "Select installed LuCI themes and appearance",
+        "read": {"uci": ["luci", "argon"]},
+        "write": {"uci": ["luci", "argon"]}
     }
-  }
 }

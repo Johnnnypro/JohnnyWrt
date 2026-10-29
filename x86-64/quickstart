@@ -1,0 +1,131 @@
+#!/bin/sh
+# Native LAN settings; intentionally no QuickStart daemon or login auto-launch.
+set -f
+[ "$(id -u)" = 0 ] || { echo '请以 root 运行。' >&2; exit 1; }
+tmp=$(mktemp -d) || exit 1
+trap 'rm -rf "$tmp"' EXIT
+trap 'exit 1' HUP INT TERM
+uc() { uci -q -t "$tmp" "$@"; }
+get() { uci -q get "$1"; }
+clean() {
+    [ -z "$(uci -q changes network)$(uci -q changes dhcp)" ] || {
+        echo '有尚未提交的网络配置，请先在原页面保存或撤销。'; return 1;
+    }
+}
+ask() {
+    printf '%s [%s]: ' "$1" "$2"
+    IFS= read -r answer || return 1
+    [ -n "$answer" ] || answer=$2
+}
+valid() {
+    # Input is data, never shell/UCI command text. IPv4 only in this small menu.
+    case "$addr$mask$gateway$dns" in *[!0-9.\ -]*) return 1;; esac
+    awk -v ip="$addr" -v mask="$mask" -v gw="$gateway" -v dns="$dns" '
+    function ipv4(s, a,n,i,v) {
+        n=split(s,a,"."); if(n!=4)return -1; v=0;
+        for(i=1;i<=4;i++) {
+            if(a[i]!~/^[0-9]+$/ || length(a[i])>3 || a[i]>255 || (length(a[i])>1 && substr(a[i],1,1)=="0"))return -1;
+            v=v*256+a[i];
+        }
+        return v;
+    }
+    function host(s, v) { v=ipv4(s); return v>=16777216 && v<3758096384 && int(v/16777216)!=127; }
+    BEGIN {
+        m=ipv4(mask); size=4294967296-m; p=1;
+        while(p<size && p<2147483648)p*=2;
+        if(p!=size || size<4 || size>2147483648 || !host(ip))exit 1;
+        v=ipv4(ip); part=v%size; if(part==0 || part==size-1)exit 1;
+        if(gw!="-") {
+            g=ipv4(gw); if(!host(gw) || int(v/size)!=int(g/size) || g==v || g%size==0 || g%size==size-1)exit 1;
+        }
+        if(dns!="-") {
+            n=split(dns,a," "); if(n<1 || n>3)exit 1;
+            for(i=1;i<=n;i++)if(!host(a[i]))exit 1;
+        }
+    }' </dev/null
+}
+show() {
+    echo '当前管理接口：'
+    get network.lan.device
+    echo '当前管理地址：'
+    ubus call network.interface.lan status 2>/dev/null | jsonfilter -e '@["ipv4-address"][*].address'
+    printf '配置方式：%s\n' "$(get network.lan.proto)"
+    printf '网关：%s\nDNS：%s\n' "$(get network.lan.gateway)" "$(get network.lan.dns)"
+}
+while :; do
+    printf '\n       JohnnyWrt 网络设置\n\n'
+    show
+    printf '\n  1. 查看网络配置\n  2. 修改管理 IP、网关和 DNS\n  3. 改为自动获取 IP（DHCP）\n  0. 返回命令行\n\n请选择 [0]: '
+    IFS= read -r choice || exit 0
+    case "$choice" in
+        0|'') exit 0;;
+        1) continue;;
+        2|3) ;;
+        *) echo '请选择 0～3。'; continue;;
+    esac
+    clean || exit 1
+    case "$(get network.lan.proto)" in static|dhcp) ;; *) echo '当前 LAN 不是普通静态/DHCP 接口，请使用网页高级网络设置。'; exit 1;; esac
+    case "$(get network.lan.ipaddr)" in *' '*|*/*) echo '当前 LAN 使用多地址或 CIDR，请使用网页高级网络设置。'; exit 1;; esac
+    if [ "$choice" = 2 ]; then
+        current=$(get network.lan.ipaddr)
+        [ -n "$current" ] || current=$(ubus call network.interface.lan status 2>/dev/null | jsonfilter -e '@["ipv4-address"][0].address')
+        ask '管理 IPv4 地址' "${current:-192.168.2.1}" || exit 0; addr=$answer
+        current=$(get network.lan.netmask)
+        ask '子网掩码' "${current:-255.255.255.0}" || exit 0; mask=$answer
+        current=$(get network.lan.gateway)
+        ask '网关（- 表示不设置）' "${current:--}" || exit 0; gateway=$answer
+        current=$(get network.lan.dns)
+        ask 'DNS（最多 3 个 IPv4，以空格分隔；- 表示不设置）' "${current:--}" || exit 0; dns=$answer
+        if ! valid; then echo '地址无效：检查 IPv4、连续掩码、同网段网关及 DNS。未修改配置。'; continue; fi
+        printf '\n将设置 LAN 静态地址：%s\n掩码：%s\n网关：%s\nDNS：%s\n' "$addr" "$mask" "$gateway" "$dns"
+        echo '保留现有 LAN DHCP 服务策略、网卡和其他接口配置。'
+    else
+        test "$(get dhcp.lan)" = dhcp && test "$(get dhcp.lan.interface)" = lan || {
+            echo '没有标准 LAN DHCP 配置，请使用网页高级网络设置。'; exit 1;
+        }
+        lan_servers=0
+        for section in $(uci -q show dhcp | sed -n 's/^\(dhcp\.[^.]*\)=dhcp$/\1/p'); do
+            [ "$(get "$section.interface")" != lan ] || lan_servers=$((lan_servers + 1))
+        done
+        [ "$lan_servers" = 1 ] || { echo 'LAN 使用多个 DHCP 配置，请使用网页高级网络设置。'; exit 1; }
+        echo '将由上级路由分配 LAN 地址和 DNS，并关闭本机 LAN DHCP/IPv6 地址通告服务。'
+        echo '应用后请从上级路由设备列表或本地控制台查询新地址。'
+    fi
+    echo '应用会中断当前网络连接；确认后不会自动回滚，可用本地控制台重新修改。'
+    printf '确认保存并应用？[y/N]: '
+    IFS= read -r answer || exit 0
+    case "$answer" in y|Y) ;; *) echo '已取消。'; continue;; esac
+    clean || exit 1
+    # Stage only in our private delta directory. Check every write before commit.
+    if [ "$choice" = 2 ]; then
+        uc set network.lan.proto=static && uc set "network.lan.ipaddr=$addr" &&
+        uc set "network.lan.netmask=$mask" && uc set network.lan.peerdns=0 || exit 1
+        uc delete network.lan.gateway; uc delete network.lan.dns
+        [ "$gateway" = - ] || uc set "network.lan.gateway=$gateway" || exit 1
+        if [ "$dns" != - ]; then
+            for server in $dns; do uc add_list "network.lan.dns=$server" || exit 1; done
+        fi
+    else
+        uc set network.lan.proto=dhcp && uc set network.lan.peerdns=1 || exit 1
+        for option in ipaddr netmask gateway dns; do uc delete "network.lan.$option"; done
+        uc set dhcp.lan.ignore=1 && uc set dhcp.lan.ra=disabled &&
+        uc set dhcp.lan.dhcpv6=disabled && uc set dhcp.lan.ndp=disabled || exit 1
+    fi
+    clean || exit 1
+    # Save originals locally so a failed commit cannot leave a half-written pair.
+    uci export network > "$tmp/network.backup" || exit 1
+    uci export dhcp > "$tmp/dhcp.backup" || exit 1
+    if ! { [ "$choice" != 3 ] || uc commit dhcp; } || ! uc commit network; then
+        uci import network < "$tmp/network.backup"; uci commit network
+        uci import dhcp < "$tmp/dhcp.backup"; uci commit dhcp
+        echo '保存失败，已尝试恢复原配置。' >&2; exit 1
+    fi
+    sync
+    if [ "$choice" = 2 ]; then
+        printf '已保存。请重新连接 SSH：ssh root@%s\n管理页面：http://%s/\n' "$addr" "$addr"
+    else
+        echo '已保存。请从上级路由或本地控制台查询新地址。'
+    fi
+    (trap '' HUP; sleep 2; reload_config) </dev/null >/tmp/johnny-network-apply.log 2>&1 &
+    exit 0
+done

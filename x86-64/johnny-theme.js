@@ -1,40 +1,70 @@
 'use strict';
 'require view';
-'require fs';
+'require uci';
 'require ui';
+'require johnny.appearance as appearance';
 
 return view.extend({
-    load:function(){return fs.read('/etc/johnny/theme.css');},
-    save:async function(css){
-        if(!L.hasViewPermission()||this.busy)return;
-        if(new TextEncoder().encode(css).length>32768){this.notice.textContent='样式最多 32 KB';return;}
-        this.busy=true;this.saveButton.disabled=true;this.resetButton.disabled=true;
-        try{
-            await fs.write('/etc/johnny/theme.css',css);this.editor.value=css;
-            const link=document.getElementById('johnny-custom-style');
-            if(link)link.href=L.resource('johnny/custom.css')+'?v='+Date.now();
-            this.notice.textContent=css?'已保存。打开其他页面查看效果，已打开的页面请刷新。':'已恢复默认样式。';
-        }catch(e){this.notice.textContent='保存失败：'+(e.message||String(e));}
-        finally{this.busy=false;this.saveButton.disabled=false;this.resetButton.disabled=false;}
+    load:function(){return Promise.all([uci.load('luci'),uci.load('argon')]);},
+    refreshOptions:function(){
+        const media=this.theme.value;
+        this.argonButton.hidden=media!=='/luci-static/argon';
+        this.mode.disabled=!L.hasViewPermission()||!['/luci-static/aurora','/luci-static/argon','/luci-static/bootstrap'].includes(media);
+        this.mode.value=appearance.current(media,uci.get('argon',this.argonSection,'mode'),this.auroraMode);
+        this.hint.textContent=media==='/luci-static/aurora'?'外观模式与当前浏览器的页脚开关同步。':
+            media==='/luci-static/argon'?'外观模式随路由器配置保存；详细选项可设置主题颜色和登录背景。':
+            media==='/luci-static/bootstrap'?'支持跟随系统、固定浅色和固定深色。':'此主题的外观选项由它自身提供。';
     },
-    render:function(css){
-        const readonly=!L.hasViewPermission();
-        this.editor=E('textarea',{class:'jw-css-editor',rows:18,spellcheck:false,readonly:readonly||null,value:css,'aria-label':'自定义 CSS'});
+    openArgon:async function(){
+        if(this.theme.value!=='/luci-static/argon'||this.busy||!L.hasViewPermission())return;
+        this.busy=true;this.argonButton.disabled=true;
+        try{
+            const config=await L.require('johnny.argon-config');
+            const content=await config.render(await config.load());
+            ui.showModal('Argon 详细设置',[E('div',{class:'jw-argon-dialog'},content),
+                E('div',{class:'right'},E('button',{type:'button',class:'cbi-button',click:()=>{ui.hideModal();this.refreshOptions();}},'关闭'))],'jw-page','jw-argon-modal');
+        }catch(e){ui.addNotification(null,E('p',{},'无法打开 Argon 设置：'+e.message));}
+        finally{this.busy=false;this.argonButton.disabled=!L.hasViewPermission();}
+    },
+    save:async function(){
+        if(this.busy||!L.hasViewPermission())return;
+        const target=appearance.target(this.theme.value,this.mode.value);
+        if(!this.choices.some(choice=>choice.value===this.theme.value))return;
+        this.busy=true;this.saveButton.disabled=true;
+        try{
+            // A storage failure must be visible before changing the installed theme.
+            if(target.aurora)localStorage.setItem('aurora.theme',target.aurora);
+            uci.set('luci','main','mediaurlbase',target.media);
+            if(target.argon)uci.set('argon',this.argonSection,'mode',target.argon);
+            await uci.save();
+            const changes=await uci.changes();
+            if(Object.values(changes).some(items=>items.length))ui.changes.apply(true);
+            else window.location.reload();
+        }catch(e){this.notice.textContent='保存失败：'+(e.message||String(e));}
+        finally{this.busy=false;this.saveButton.disabled=false;}
+    },
+    render:function(){
+        const readonly=!L.hasViewPermission(),media=uci.get('luci','main','mediaurlbase');
+        this.argonSection=uci.sections('argon','global')[0]?.['.name'];
+        this.choices=appearance.choices(uci.get('luci','themes'));
+        try{this.auroraMode=localStorage.getItem('aurora.theme');}catch(e){this.auroraMode='device';}
+        this.theme=E('select',{'aria-label':'主题',disabled:readonly||null,change:()=>this.refreshOptions()},
+            this.choices.map(choice=>E('option',{value:choice.value},choice.label)));
+        this.theme.value=(media||'').replace(/\/bootstrap-(dark|light)$/,'/bootstrap');
+        this.mode=E('select',{'aria-label':'外观模式'},[
+            E('option',{value:'auto'},'跟随系统'),E('option',{value:'light'},'浅色'),E('option',{value:'dark'},'深色')]);
+        this.hint=E('p',{class:'jw-subtle'});
         this.notice=E('p',{class:'jw-subtle','aria-live':'polite'});
-        this.saveButton=E('button',{type:'button',class:'cbi-button cbi-button-action',disabled:readonly||null,click:()=>this.save(this.editor.value)},'保存并应用');
-        this.resetButton=E('button',{type:'button',class:'cbi-button',disabled:readonly||null,click:()=>{
-            if(readonly||this.busy)return;
-            ui.showModal('恢复默认样式',[E('p',{},'将清空保存的自定义 CSS。'),E('div',{class:'jw-actions'},[
-                E('button',{type:'button',class:'cbi-button',click:()=>ui.hideModal()},'取消'),
-                E('button',{type:'button',class:'cbi-button',click:async()=>{ui.hideModal();await this.save('');}},'确认恢复')])]);
-        }},'恢复默认');
-        return E('div',{class:'jw-page jw-theme-editor'},[
-            E('link',{rel:'stylesheet',href:L.resource('johnny/johnny.css')}),E('header',{class:'jw-header'},[E('h2',{},'自定义主题')]),
-            E('section',{class:'jw-card'},[E('h3',{},'主题代码（CSS）'),
-                E('p',{class:'jw-subtle'},'页脚可选择跟随系统、浅色或深色。这里的样式会覆盖管理页面外观，并随保留配置升级保留。'),
-                E('p',{class:'jw-subtle'},'本编辑页不加载自定义样式，方便随时恢复。修改颜色时，请同时检查浅色和深色的文字可读性。'),
-                this.editor,E('div',{class:'jw-actions'},[this.saveButton,this.resetButton]),this.notice,
-                E('details',{},[E('summary',{},'查看深浅色写法示例'),E('pre',{class:'jw-css-example'},
-                    '/* 浅色：首页与向导 */\n:root[data-darkmode="false"] .jw-page {\n  --jw-text: #172334;\n  --jw-surface: #ffffff;\n}\n\n/* 深色：首页与向导 */\n:root[data-darkmode="true"] .jw-page {\n  --jw-text: #edf2fa;\n  --jw-surface: #18212e;\n}')])])]);
+        this.argonButton=E('button',{type:'button',class:'cbi-button',disabled:readonly||null,click:()=>this.openArgon()},'Argon 详细设置');
+        this.saveButton=E('button',{type:'button',class:'cbi-button cbi-button-action',disabled:readonly||null,click:()=>this.save()},'保存并应用');
+        this.refreshOptions();
+        this.mode.value=appearance.current(media,uci.get('argon',this.argonSection,'mode'),this.auroraMode);
+        return E('div',{class:'jw-page jw-theme-settings'},[
+            E('link',{rel:'stylesheet',href:L.resource('johnny/johnny.css')+'?v='+encodeURIComponent(L.env?.resource_version||'development')}),
+            E('div',{class:'jw-header'},E('h2',{},'主题设置')),
+            E('section',{class:'jw-card'},[
+                E('label',{class:'jw-field'},[E('span',{},'主题'),this.theme]),
+                E('label',{class:'jw-field'},[E('span',{},'外观模式'),this.mode]),
+                this.hint,this.argonButton,E('div',{class:'jw-actions'},this.saveButton),this.notice])]);
     },handleSaveApply:null,handleSave:null,handleReset:null
 });

@@ -51,10 +51,15 @@ test -s /etc/meowx/run/ui/index.html
 test "$(uci get meowx.mixin.ui_path)" = ui
 test -z "$(uci -q get meowx.mixin.ui_name)"
 test ! -e /usr/sbin/quickstart
+test -x /usr/bin/quickstart
+test -s /www/luci-static/resources/johnny/johnny-native.css
+test ! -e /www/luci-static/resources/johnny/custom-style.js
+test ! -e /lib/upgrade/keep.d/johnny-theme
+! grep -q custom-style /usr/share/ucode/luci/template/themes/aurora/footer.ut
 test ! -e /usr/lib/lua/luci/controller/quickstart.lua
 test ! -e /usr/lib/lua/luci/controller/store.lua
 sh /tmp/test-dashboard-api.sh
-sh /tmp/test-custom-css.sh
+sh /tmp/test-quickstart.sh
 sh /tmp/test-meow-actions.sh
 ucode /tmp/test-network-apply.uc
 test -z "$(jsonfilter -i /usr/share/luci/menu.d/luci-base.json -e '@["admin/nas"].title')"
@@ -193,7 +198,7 @@ echo JOHNNY_BOOT_TEST_PASSED
 plans = image.parent / 'network-test-plans.json'
 subprocess.run(['node', str(Path(__file__).with_name('network-test-plans.js')), str(plans)], check=True)
 inputs = [(name, Path(__file__).with_name(name)) for name in
-          ('test-ui-layout.sh', 'test-dashboard-api.sh', 'test-meow-actions.sh', 'test-network-apply.uc', 'test-johnny-probe.sh', 'test-johnny-probe.uc', 'test-custom-css.sh')]
+          ('test-ui-layout.sh', 'test-dashboard-api.sh', 'test-meow-actions.sh', 'test-network-apply.uc', 'test-johnny-probe.sh', 'test-johnny-probe.uc', 'test-quickstart.sh')]
 inputs.append(('johnny-network-plans.json', plans))
 for name, source in inputs:
     content = source.read_text(encoding='utf-8').rstrip('\n') + '\n'
