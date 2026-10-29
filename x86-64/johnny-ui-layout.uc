@@ -25,6 +25,22 @@ aurora = replace(aurora, /1\.4\.0(-johnny-[A-Za-z0-9._-]+)?"/g, '1.4.0-johnny-' 
 let argon_path = root + '/usr/share/ucode/luci/template/themes/argon/header.ut';
 let argon = readfile(argon_path);
 assert(argon != null, 'Cannot read Argon header');
+let bootstrap_path = root + '/usr/share/ucode/luci/template/themes/bootstrap/header.ut';
+let bootstrap = readfile(bootstrap_path);
+assert(bootstrap != null && index(bootstrap, '/cascade.css?v=') >= 0 &&
+    (index(argon, '/luci.js?v=') >= 0 || index(argon, 'johnny-shared-luci-loader') >= 0), 'Unsupported theme asset URLs');
+function version_assets(source) {
+    return replace(source, /((src|href)="[^"\n]+\.(css|js))(\?v=[^"\n]*)?"/g, (all, url, attribute, extension, query) => {
+        query = replace(query || '?v=0', /(-\{\{ pkgs_update_time \}\})?-johnny-[A-Za-z0-9._-]+$/, '');
+        return url + query + '-{{ pkgs_update_time }}-johnny-' + build + '"';
+    });
+}
+// The shared header loads LuCI and stamps imports with package/build versions.
+// Remove Argon's legacy duplicate so it cannot select an older cache key.
+argon = replace(argon, /<script src="[^"\n]*\/luci\.js[^"\n]*"><\/script>/g,
+    '<!-- johnny-shared-luci-loader -->');
+argon = version_assets(argon);
+bootstrap = version_assets(bootstrap);
 if (index(argon, 'johnny-appearance') < 0) {
     let anchor = '<head>';
     assert(length(split(argon, anchor)) == 2 && index(argon, "let mode = 'normal'") >= 0,
@@ -90,6 +106,7 @@ for (let path, content in {
     [header_path]: header,
     [aurora_path]: aurora,
     [argon_path]: argon,
+    [bootstrap_path]: bootstrap,
     [root + '/www/luci-static/resources/johnny/argon-config.js']: argon_modal,
     [argon_acl_path]: sprintf('%J\n', argon_acl),
     [argon_menu_path]: sprintf('%J\n', argon_menu),

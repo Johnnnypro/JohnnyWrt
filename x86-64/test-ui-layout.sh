@@ -13,6 +13,7 @@ argon_view=/www/luci-static/resources/view/argon-config.js
 argon_acl=/usr/share/rpcd/acl.d/luci-app-argon-config.json
 header=/usr/share/ucode/luci/template/header.ut
 aurora=/usr/share/ucode/luci/template/themes/aurora/header.ut
+bootstrap=/usr/share/ucode/luci/template/themes/bootstrap/header.ut
 mkdir -p "$root$menu" "$(dirname "$root$flash")"
 mkdir -p "$(dirname "$root$footer")"
 cp "$source_root$flash" "$root$flash"
@@ -24,6 +25,8 @@ mkdir -p "$(dirname "$root$argon_acl")"
 cp "$source_root$argon_acl" "$root$argon_acl"
 cp "$source_root$header" "$root$header"
 cp "$source_root$aurora" "$root$aurora"
+mkdir -p "$(dirname "$root$bootstrap")"
+cp "$source_root$bootstrap" "$root$bootstrap"
 mkdir -p "$root/etc"
 printf 'same-source\n' > "$root/etc/johnnywrt-build"
 printf 'test-build-2\n' > "$root/etc/johnnywrt-release"
@@ -61,6 +64,12 @@ test -z "$(jsonfilter -i "$root$menu/luci-app-argon-config.json" -e '@["admin/sy
 grep -q 'pkgs_update_time }}-johnny-test-build-2' "$root$header"
 grep -q ':1.4.0-johnny-test-build-2' "$root$aurora"
 grep -q 'data-luci-shell.*johnny-native.css?v=test-build-2' "$root$header"
+# Only the shared versioned loader may determine the module cache key.
+grep -q 'johnny-shared-luci-loader' "$root$argon"
+! grep -q '/luci.js' "$root$argon"
+grep -q 'cascade.css?v=.*johnny-test-build-2' "$root$argon"
+grep -q 'cascade.css?v=.*johnny-test-build-2' "$root$bootstrap"
+grep -q 'mobile.css?v=.*johnny-test-build-2' "$root$bootstrap"
 # Integration must keep all three native actions.
 for handler in handleBackup handleRestore handleSysupgrade; do
     grep -q "$handler" "$root$flash"
@@ -76,6 +85,10 @@ ucode "$helper" "$root"
 grep -q 'pkgs_update_time }}-johnny-test-build-3' "$root$header"
 grep -q ':1.4.0-johnny-test-build-3' "$root$aurora"
 ! grep -q 'johnny-test-build-2' "$root$header"
+for theme_header in "$root$argon" "$root$bootstrap"; do
+    grep -q 'johnny-test-build-3' "$theme_header"
+    ! grep -q 'johnny-test-build-2' "$theme_header"
+done
 # An additional VPN application must retain its category.
 printf '%s\n' '{"admin/vpn/other":{"title":"Other VPN"}}' > "$root$menu/other.json"
 ucode "$helper" "$root"

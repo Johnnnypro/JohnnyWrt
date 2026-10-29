@@ -52,7 +52,7 @@ function pending(config) {
     return false;
 }
 function meow() {
-    let result = { running: running('meowx'), available: false };
+    let result = { running: running('meowx'), available: false, pending: pending('meowx') };
     try { result.operation = json(readfile('/tmp/johnny-meow-action.json') || 'null'); } catch (e) {}
     if (!result.running) return result;
     try {

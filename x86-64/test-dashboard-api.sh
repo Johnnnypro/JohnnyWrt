@@ -30,6 +30,10 @@ ubus call luci.johnny probe '{"id":"0123456789abcdef","ip":"localhost","port":80
 test ! -e /tmp/johnny-injection
 test "$before" = "$(sha256sum /etc/config/zerotier)"
 mkdir -p /var/run/rpcd/uci-johnny-test
+printf "meowx.config.profile='file:pending-test.yaml'\n" > /var/run/rpcd/uci-johnny-test/meowx
+test "$(ubus call luci.johnny status | jsonfilter -e '@.meowx.pending')" = true
+rm /var/run/rpcd/uci-johnny-test/meowx
+test "$(ubus call luci.johnny status | jsonfilter -e '@.meowx.pending')" = false
 printf "network.lan.hostname='pending-browser-test'\n" > /var/run/rpcd/uci-johnny-test/network
 test "$(ubus call luci.johnny status | jsonfilter -e '@.pending_network')" = true
 ubus call luci.johnny join '{"id":"0123456789abcdef"}' | grep -q error

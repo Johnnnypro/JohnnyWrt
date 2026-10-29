@@ -28,7 +28,7 @@ function setup(file, readonly = false) {
     const view = new Function('view','rpc','uci','ui','poll','meowx','model','connectivity','E','L','navigator','document',load(file))(
         {extend:x=>x},rpc,uci,ui,{add:fn=>polls.push(fn),remove:fn=>polls.splice(polls.indexOf(fn),1)},meowx,model,connectivity,E,
         {hasViewPermission:()=>!readonly,resource:x=>x,url:(...x)=>x.join('/')},{clipboard:{writeText:async()=>{}}},{createElementNS:(_,tag)=>E(tag)});
-    return {view,nodes,calls,polls,modals,uci,meowx,connectivity,notifications,setProbe:p=>probe=p,setAccount:a=>{account=a;meowx.panelStatus=async()=>a;},setStatus:s=>status=s,button:label=>nodes.findLast(n=>n.tag==='button' && n.textContent===label)};
+    return {view,nodes,calls,polls,modals,uci,meowx,connectivity,notifications,setProbe:p=>probe=p,setAccount:a=>{account=a;meowx.panelStatus=async()=>a;},setStatus:s=>status=s,button:label=>nodes.findLast(n=>n.tag==='button' && (n.textContent===label||n['aria-label']===label))};
 }
 function readyProbe(readonly=false){
     const t=setup('johnny-zerotier.js',readonly);
@@ -210,12 +210,89 @@ test('network apply refuses newly staged work and changed configuration before a
         assert.equal(saved,false);
     }
 });
-test('account refresh reports server failures and labels the cached account',async()=>{
-    const t=setup('johnny-home.js');t.setAccount({logged_in:true,username:'Test account'});
-    t.meowx.panelProfile=async()=>({success:false,error:'controller offline'});
-    await t.view.render(await t.view.load());await t.button('刷新账户').click();
-    assert(t.notifications.some(s=>s.includes('controller offline')));
-    assert(t.nodes.some(n=>n.textContent.includes('上次获取')));
+function subscriptionPage(readonly=false){
+    const t=setup('johnny-home.js',readonly);
+    t.subscription={'.name':'demo',name:'Demo',used_bytes:'100',total_bytes:'1000',update_ts:'100'};
+    t.uci.get=()=> 'subscription:demo';t.uci.sections=()=>[t.subscription];
+    t.meowx.refreshSubscription=async()=>({success:true,applied:true});
+    t.text=()=>{const read=n=>typeof n==='string'?n:Array.isArray(n)?n.map(read).join(' '):read(n?.children||[]);return read(t.view.content);};
+    return t;
+}
+test('one icon updates the selected subscription and redisplays provider quota without account login',async()=>{
+    const t=subscriptionPage();let selected,loaded=false;
+    t.meowx.refreshSubscription=async id=>{selected=id;return {success:true,applied:true};};
+    await t.view.render(await t.view.load());
+    const button=t.button('更新订阅与用量');assert(button,'accessible refresh control');
+    t.uci.unload=c=>{assert.equal(c,'meowx');loaded=false;};
+    t.uci.load=async c=>{assert.equal(c,'meowx');loaded=true;t.subscription={...t.subscription,used_bytes:'200',update_ts:'200'};};
+    await button.click();
+    assert.equal(selected,'demo');assert(loaded);assert.match(t.text(),/200 B/);assert.match(t.text(),/已应用/);
+    assert(!t.button('刷新账户'));assert(!t.button('刷新用量'));
+    assert.equal(button.textContent,'');assert.equal(button.title,'更新订阅与用量');
+});
+test('subscription refresh serializes repeated clicks while polling and clears its loading state',async()=>{
+    const t=subscriptionPage();let finish,count=0;
+    t.meowx.refreshSubscription=()=>{count++;return new Promise(resolve=>finish=resolve);};
+    await t.view.render(await t.view.load());const button=t.button('更新订阅与用量');assert(button);
+    const first=button.click();await new Promise(setImmediate);await button.click();await t.polls[0]();
+    assert.equal(count,1);assert(t.button('更新订阅与用量').disabled);assert.match(t.text(),/正在更新/);
+    finish({success:true,applied:true});await first;
+    assert.equal(t.button('更新订阅与用量').disabled,false);assert(!/正在更新/.test(t.text()));
+});
+test('subscription refresh rejects read-only, local profiles, unavailable status, busy service and pending changes',async()=>{
+    for(const kind of ['readonly','local','offline','service','session','global']){
+        const t=subscriptionPage(kind==='readonly');let count=0;
+        t.meowx.refreshSubscription=async()=>{count++;return {success:true};};
+        if(kind==='local')t.uci.get=()=> 'file:local.yaml';
+        if(kind==='offline')t.setStatus(new Error('offline'));
+        if(kind==='service')t.setStatus({meowx:{operation:{state:'running'}}});
+        if(kind==='session')t.uci.changes=async()=>({meowx:[['set','config','profile','file:other']]});
+        if(kind==='global')t.setStatus({meowx:{pending:true}});
+        await t.view.render(await t.view.load());const button=t.button('更新订阅与用量');assert(button,kind);await button.click();
+        assert.equal(count,0,kind);
+    }
+});
+test('subscription result distinguishes busy, failed download, failed apply and service-off update',async()=>{
+    for(const [response,expected] of [[{success:false,busy:true},/正在更新/],[{success:false,error_type:'download'},/失败.*保留/],[{success:true,applied:false},/应用失败/],[{success:true},/未应用/]]){
+        const t=subscriptionPage();t.meowx.refreshSubscription=async()=>response;
+        await t.view.render(await t.view.load());const button=t.button('更新订阅与用量');assert(button);await button.click();
+        assert.match(t.text(),expected);assert(!t.text().includes('已应用'));assert.equal(t.notifications.length,0,'native helper owns response notifications');
+        assert.equal(t.button('更新订阅与用量').disabled,false);
+    }
+});
+test('subscription refresh rechecks pending and operation state and rejects an incomplete status response',async()=>{
+    for(const status of [{}, {meowx:{pending:true}}, {meowx:{operation:{state:'running'}}}]){
+        const t=subscriptionPage();let calls=0;
+        t.meowx.refreshSubscription=async()=>{calls++;return {success:true};};
+        await t.view.render(await t.view.load());
+        t.setStatus(status);await t.button('更新订阅与用量').click();
+        assert.equal(calls,0);assert.equal(t.notifications.length,1);
+    }
+});
+test('subscription transport failure keeps known quota and reports uncertainty instead of success',async()=>{
+    const t=subscriptionPage();t.meowx.refreshSubscription=async()=>{throw Error('RPC lost');};
+    await t.view.render(await t.view.load());const button=t.button('更新订阅与用量');assert(button);await button.click();
+    assert.match(t.text(),/100 B/);assert.match(t.text(),/未确认/);assert(!t.text().includes('已应用'));
+    assert.equal(t.button('更新订阅与用量').disabled,false);assert.equal(t.notifications.length,1);
+});
+test('subscription reload failure keeps the last profile and quota usable for retry',async()=>{
+    const t=subscriptionPage();let cached=true,fail=true,calls=0;
+    t.uci.get=()=>cached?'subscription:demo':undefined;
+    t.uci.sections=()=>cached?[t.subscription]:[];
+    t.uci.unload=()=>{cached=false;};
+    t.uci.load=async()=>{if(fail)throw Error('UCI read failed');cached=true;t.subscription={...t.subscription,used_bytes:'200'};};
+    t.meowx.refreshSubscription=async()=>{calls++;return {success:true,applied:true};};
+    await t.view.render({status:{meowx:{}},account:{logged_in:false}});
+    await t.button('更新订阅与用量').click();
+    assert(t.text().includes('100 B'));assert(t.text().includes('更新结果未确认'));
+    await t.view.refresh();assert(t.text().includes('100 B'));
+    assert(!t.button('更新订阅与用量').disabled);
+    fail=false;await t.button('更新订阅与用量').click();
+    assert.equal(calls,2);assert(t.text().includes('200 B'));assert(t.text().includes('已应用'));
+});
+test('subscription result does not follow the user to another selected profile',async()=>{
+    const t=subscriptionPage();await t.view.render(await t.view.load());const button=t.button('更新订阅与用量');assert(button);await button.click();
+    assert.match(t.text(),/已应用/);t.uci.get=()=> 'file:local.yaml';t.view.draw();assert(!t.text().includes('已应用'));
 });
 test('account status transport failure is not treated as confirmed logout',async()=>{
     const t=setup('johnny-home.js');t.setAccount(new Error('offline'));

@@ -125,13 +125,14 @@ class SmokeInputTest(unittest.TestCase):
             self.assertIn('PASS: serial test input', result.stdout)
 
     def test_overlong_test_source_is_rejected_before_boot(self):
-        for source in ('test-dashboard-api.sh', 'test-johnny-nat-diagnostics.sh'):
+        for source in ('test-dashboard-api.sh', 'test-johnny-nat-diagnostics.sh', 'test-subscription-refresh.sh'):
             with self.subTest(source=source), tempfile.TemporaryDirectory() as directory:
                 target = Path(directory)
                 for name in ('smoke-test25.py', 'network-test-plans.js', 'johnny-model.js',
                              'test-ui-layout.sh', 'test-dashboard-api.sh', 'test-meow-actions.sh',
                              'test-network-apply.uc', 'test-johnny-probe.sh',
-                             'test-johnny-probe.uc', 'test-quickstart.sh', 'test-johnny-nat-diagnostics.sh'):
+                             'test-johnny-probe.uc', 'test-quickstart.sh', 'test-johnny-nat-diagnostics.sh',
+                             'test-subscription-refresh.sh'):
                     shutil.copyfile(root / name, target / name)
                 with (target / source).open('a', encoding='utf-8') as output:
                     output.write('\n#' + 'x' * 500 + '\n')

@@ -69,6 +69,7 @@ test ! -e /usr/lib/lua/luci/controller/store.lua
 sh /tmp/test-dashboard-api.sh
 sh /tmp/test-quickstart.sh
 sh /tmp/test-meow-actions.sh
+sh /tmp/test-subscription-refresh.sh
 ucode /tmp/test-network-apply.uc
 test -z "$(jsonfilter -i /usr/share/luci/menu.d/luci-base.json -e '@["admin/nas"].title')"
 test -z "$(jsonfilter -i /usr/share/luci/menu.d/luci-app-zerotier.json -e '@["admin/vpn/zerotier"].title')"
@@ -209,7 +210,7 @@ echo JOHNNY_BOOT_TEST_PASSED
 plans = image.parent / 'network-test-plans.json'
 subprocess.run(['node', str(Path(__file__).with_name('network-test-plans.js')), str(plans)], check=True)
 inputs = [(name, Path(__file__).with_name(name)) for name in
-          ('test-ui-layout.sh', 'test-dashboard-api.sh', 'test-meow-actions.sh', 'test-network-apply.uc', 'test-johnny-probe.sh', 'test-johnny-probe.uc', 'test-quickstart.sh', 'test-johnny-nat-diagnostics.sh')]
+          ('test-ui-layout.sh', 'test-dashboard-api.sh', 'test-meow-actions.sh', 'test-network-apply.uc', 'test-johnny-probe.sh', 'test-johnny-probe.uc', 'test-quickstart.sh', 'test-johnny-nat-diagnostics.sh', 'test-subscription-refresh.sh')]
 inputs.append(('johnny-network-plans.json', plans))
 for name, source in inputs:
     content = source.read_text(encoding='utf-8').rstrip('\n') + '\n'

@@ -30,6 +30,12 @@ function icon(name){
     return E('img',{class:'jw-ui-icon',alt:'',src:'data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#1685ee" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+paths[name]+'</svg>')});
 }
 function statTitle(name,label){return E('span',{class:'jw-stat-title'},[E('span',{class:'jw-stat-icon'},[icon(name)]),E('span',{},label)]);}
+function refreshIcon(){
+    const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg'),path=document.createElementNS(ns,'path');
+    svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');
+    path.setAttribute('d','M20 7v5h-5M20 12a8 8 0 1 0-2.3 5.7');
+    svg.appendChild(path);return svg;
+}
 function shortcut(label,description,symbol,...path){return link(E('span',{class:'jw-shortcut-content'},[icon(symbol),E('span',{},[E('strong',{},label),E('small',{},description)])]),...path);}
 function card(title,children,logo,extra) {return E('section',{class:'jw-card'+(logo?' jw-service':'')},[
     E('div',{class:'jw-card-title'},[...(logo?[E('img',{src:L.resource(logo),alt:'',class:'jw-logo'})]:[]),E('h3',{},title),...(extra?[extra]:[])]),...children]);}
@@ -63,6 +69,30 @@ return view.extend({
         this.busy=true;this.draw();
         try {await handler();} catch(e) {ui.addNotification(null,E('p',{},e.message || String(e)),'error');}
         finally {this.busy=false;await this.refresh();}
+    },
+    reloadSubscriptions:async function(){
+        this.subscriptionSnapshot ||= {current:uci.get('meowx','config','profile')||'',subscriptions:uci.sections('meowx','subscription')};
+        uci.unload('meowx');await uci.load('meowx');
+        this.subscriptionSnapshot=null;
+    },
+    updateSubscription:async function(section){
+        this.subscriptionUpdating=section;this.subscriptionResult=null;this.draw();
+        try {
+            const pending=await uci.changes(),status=await getStatus();
+            if(!status.meowx)throw new Error('MeowX 状态暂不可用，请稍后重试');
+            if(pending.meowx?.length || status.meowx?.pending)
+                throw new Error('请先应用或撤销 MeowX 未保存设置（包括其他登录页面）');
+            if(status.meowx?.operation?.state==='running')throw new Error('MeowX 正在处理服务操作，请稍候');
+            const result=await meowx.refreshSubscription(section);
+            const text=result?.busy?'订阅正在更新，请稍后重试':!result?.success?'更新失败，已保留上次订阅和用量':
+                result.applied===false?'订阅已下载，但应用失败；服务继续使用原配置':
+                result.applied?'订阅已更新 · 已应用':'订阅已更新，当前未应用';
+            this.subscriptionResult={section,text,good:!!result?.success&&result.applied!==false};
+            await this.reloadSubscriptions();
+        } catch(e) {
+            this.subscriptionResult={section,text:'更新结果未确认，请检查连接后重试',good:false};
+            throw e;
+        } finally {this.subscriptionUpdating=null;}
     },
     serviceAction: function(verb) {
         const execute=async()=>{
@@ -99,8 +129,8 @@ return view.extend({
     draw: function() {
         const data=this.data||{}, system=data.system||{}, mx=data.meowx||{}, zt=data.zerotier||{};
         const readonly=!L.hasViewPermission() || !this.data || this.busy || mx.operation?.state==='running';
-        const current=uci.get('meowx','config','profile')||'';
-        const subscriptions=uci.sections('meowx','subscription');
+        const current=this.subscriptionSnapshot?.current ?? (uci.get('meowx','config','profile')||'');
+        const subscriptions=this.subscriptionSnapshot?.subscriptions ?? uci.sections('meowx','subscription');
         const subscription=subscriptions.find(s=>'subscription:'+s['.name']===current);
         const quota=model.quota(subscription||{}), account=this.account;
         const mxRate=model.rates(this.previous && {...this.previous.meowx,time:this.previous.time},
@@ -111,22 +141,18 @@ return view.extend({
             return this.perform(async()=>{
                 const result=await meowx.switchProfile(value);
                 if(!result?.success)throw new Error(result?.error||'切换订阅失败');
-                uci.unload('meowx');await uci.load('meowx');
+                await this.reloadSubscriptions();
             });
         }},[E('option',{value:current},subscription?meowx.subscriptionName(subscription):(current?'本地配置':'尚未选择订阅')),
             ...subscriptions.filter(s=>s!==subscription).map(s=>E('option',{value:'subscription:'+s['.name']},meowx.subscriptionName(s)))]);
-        const accountNodes=account?.logged_in ? [
-            ...(typeof account.avatar==='string' && /^https:\/\//.test(account.avatar)
-                ? [E('img',{class:'jw-avatar',src:account.avatar,alt:'订阅账户头像',referrerpolicy:'no-referrer'})] : []),
-            E('strong',{},account.username||'订阅账户'),
-            this.button('刷新账户',async()=>{
-                this.accountError='刷新未完成，显示上次获取的账户信息';
-                const result=await meowx.panelProfile();
-                if(!result?.success)throw new Error(result?.error||'账户刷新失败');
-                this.account=await getAccount();uci.unload('meowx');await uci.load('meowx');this.accountError=null;
-            },readonly),
-            ...(this.accountError?[E('small',{},this.accountError)]:[])
-        ] : [E('span',{},account ? '尚未登录订阅账户' : '账户状态暂不可用'),link('登录／订阅设置','admin','services','meowx')];
+        const accountNodes=account?.logged_in ? [E('span',{},' · '+(account.username||'订阅账户'))] :
+            [E('span',{},account?'尚未登录订阅账户':'账户状态暂不可用'),link('登录／订阅设置','admin','services','meowx')];
+        const updating=!!this.subscriptionUpdating;
+        const refresh=this.button(refreshIcon(),()=>this.updateSubscription(subscription['.name']),readonly||!subscription||mx.pending);
+        refresh.className='cbi-button jw-refresh'+(updating?' jw-refreshing':'');
+        refresh.setAttribute('aria-label','更新订阅与用量');refresh.setAttribute('title','更新订阅与用量');
+        refresh.setAttribute('aria-busy',String(updating));
+        const result=this.subscriptionResult?.section===subscription?.['.name']?this.subscriptionResult:null;
         const toggle=this.button(mx.running?'关闭':'开启',()=>this.serviceAction(mx.running?'stop':'start'),readonly);
         toggle.className='jw-toggle'+(mx.running?' jw-toggle-on':'');toggle.setAttribute('role','switch');toggle.setAttribute('aria-checked',String(!!mx.running));
         const meowCard=card('MeowX',[
@@ -134,13 +160,20 @@ return view.extend({
                 E('span',{},({rule:'规则模式',global:'全局模式',direct:'直连模式'}[mx.mode]||'模式待获取')),
                 E('span',{},mx.connections==null?'连接待获取':mx.connections+' 个连接')]),
             E('div',{class:'jw-subscription'},[
-                E('div',{class:'jw-account'},accountNodes),
-                E('div',{class:'jw-row'},[E('strong',{},'当前订阅'),profile]),
+                E('div',{class:'jw-subscription-heading'},[E('span',{},'当前订阅'),...accountNodes]),
+                E('div',{class:'jw-subscription-toolbar'},[
+                    E('div',{class:'jw-subscription-picker'},[profile,refresh]),
+                    E('span',{class:'jw-subtle'+(result?.good?' jw-subscription-ok':''),role:'status','aria-live':'polite'},
+                        updating?'正在更新订阅与用量…':result?.text||'')]),
                 E('div',{class:'jw-quota'},[
-                E('p',{},quota.used!=null && quota.total!=null ? bytes(quota.used)+' / '+bytes(quota.total) : '暂无订阅用量信息'),
-                E('div',{class:'jw-meter'},[E('span',{style:'width:'+(quota.percent||0)+'%'})]),
-                E('p',{class:'jw-subtle'},'剩余 '+bytes(quota.remaining)+' · '+(quota.expires?'到期 '+new Date(quota.expires*1000).toLocaleDateString():'到期时间未知')),
-                E('p',{class:'jw-subtle'},quota.updated?'用量更新于 '+new Date(quota.updated*1000).toLocaleString():'用量等待订阅提供方返回')])]),
+                    E('div',{class:'jw-quota-metrics'},[
+                        E('div',{class:'jw-quota-used'},[E('span',{},'已使用'),E('div',{},[E('strong',{},bytes(quota.used)),E('small',{},' / '+bytes(quota.total))])]),
+                        E('div',{},[E('span',{},'剩余流量'),E('strong',{},bytes(quota.remaining))]),
+                        E('div',{},[E('span',{},'订阅到期'),E('strong',{},quota.expires?new Date(quota.expires*1000).toLocaleDateString():'未知')])]),
+                    E('div',{class:'jw-meter'},[E('span',{style:'width:'+(quota.percent||0)+'%'})]),
+                    E('div',{class:'jw-quota-meta'},[
+                        E('span',{},quota.percent==null?'暂无订阅用量信息':'已用 '+quota.percent.toFixed(1)+'%'),
+                        E('span',{},quota.updated?'订阅更新于 '+new Date(quota.updated*1000).toLocaleString():'等待订阅提供方返回用量')])])]),
             E('h4',{class:'jw-traffic-label'},'实时流量'),
             E('div',{class:'jw-rates jw-proxy-rates'},[
                 E('div',{},[row('↓ 下载',bytes(mxRate.rx)+'/s'),graph(this.proxyHistory,['rx'],true)]),
