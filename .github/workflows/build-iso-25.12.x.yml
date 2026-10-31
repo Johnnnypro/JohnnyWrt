@@ -57,6 +57,10 @@ jobs:
           sh x86-64/test-ssh-qos.sh
           sh x86-64/test-custom25.sh
           sh x86-64/test-distfeeds.sh
+          node --test x86-64/test-meowx-dashboard.js
+          python3 x86-64/test-meowx-versions.py
+          curl -fL --retry 3 --connect-timeout 20 --max-time 120 https://dl.miaomiaowux.com/meowx/openwrt/openwrt-25.12/x86_64/meowx/index.json -o /tmp/meowx-index.json
+          python3 x86-64/check-meowx-versions.py /tmp/meowx-index.json
           node --test x86-64/test-update-ui.js x86-64/test-johnny-model.js x86-64/test-johnny-ui.js x86-64/test-johnny-connectivity.js x86-64/test-johnny-theme.js x86-64/test-johnny-theme-ui.js
           python3 x86-64/test-upgrade-readiness.py
           python3 x86-64/test-retention-evidence.py
@@ -120,6 +124,7 @@ jobs:
         run: |
           manifest=$(find bin/targets/x86/64 -maxdepth 1 -name '*.manifest' -print -quit)
           test -n "$manifest"
+          python3 x86-64/check-meowx-versions.py "$manifest"
           for package in meowx-core meowx luci-app-meowx luci-i18n-meowx-zh-cn zerotier luci-app-zerotier luci-theme-aurora luci-mod-rpc luci-lib-ipkg luci-compat libuci-lua ucode-mod-socket ip-full; do
             grep -E "^${package} - " "$manifest" || exit 1
           done

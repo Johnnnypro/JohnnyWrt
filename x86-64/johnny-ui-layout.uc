@@ -17,6 +17,10 @@ let native_css = '<link rel="stylesheet" data-luci-shell href="{{ resource }}/jo
 if (index(header, '/johnny/johnny-native.css?') >= 0)
     header = replace(header, /<link rel="stylesheet" data-luci-shell href="[^"\n]*\/johnny\/johnny-native\.css\?v=[^"\n]+">/, native_css);
 else header += '\n' + native_css + '\n';
+let meow_bridge = '<script data-luci-shell src="{{ resource }}/johnny/meowx-bridge.js?v=' + build + '"></script>';
+if (index(header, '/johnny/meowx-bridge.js?') >= 0)
+    header = replace(header, /<script data-luci-shell src="[^"\n]*\/johnny\/meowx-bridge\.js\?v=[^"\n]+"><\/script>/, meow_bridge);
+else header += '\n' + meow_bridge + '\n';
 let aurora_path = root + '/usr/share/ucode/luci/template/themes/aurora/header.ut';
 let aurora = readfile(aurora_path);
 assert(aurora != null && index(aurora, 'data-asset-version="1.4.0') >= 0 &&

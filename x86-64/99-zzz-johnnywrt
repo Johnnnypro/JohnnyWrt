@@ -27,4 +27,5 @@ uci set firewall.johnny_zt_nat.type='script'
 uci set firewall.johnny_zt_nat.path='/usr/libexec/johnny-zt-nat'
 uci set firewall.johnny_zt_nat.fw4_compatible='1'
 uci commit firewall
+ucode /usr/libexec/johnny-dashboard-defaults.uc || exit 1
 exit 0

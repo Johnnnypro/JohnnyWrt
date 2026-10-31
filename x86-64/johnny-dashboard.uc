@@ -148,6 +148,16 @@ function join_network(id) {
 
 return { 'luci.johnny': {
     status: { call: status },
+    dashboard_defaults: { call: () => {
+        let profile = load_profile();
+        // Leave user-selected dashboard locations and dashboard types alone.
+        let path = profile['external-ui'] || 'ui';
+        if (index(['ui', '/etc/meowx/run/ui'], path) < 0 || profile['external-ui-name'])
+            return { applied: false, reason: 'custom-dashboard' };
+        if (system('ucode /usr/libexec/johnny-dashboard-defaults.uc') != 0)
+            return { error: '面板已下载，但 Apple 测速设置未能应用，请检查面板版本后重试。' };
+        return { applied: true };
+    } },
     meow_action: { args: { action: '' }, call: req => {
         let action = req.args.action;
         if (index(['start', 'stop', 'restart', 'reload'], action) < 0) return { error: '不支持的服务操作' };

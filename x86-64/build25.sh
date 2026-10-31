@@ -48,6 +48,8 @@ fi
 
 if [ "${CUSTOM_BYPASS:-0}" = "1" ]; then
   # Use the author's 25.12 APK instead of the older bundled theme.
+  # MeowX must come from its signed vendor feed, never a stale store APK.
+  rm -f packages/meowx-*.apk packages/luci-app-meowx-*.apk packages/luci-i18n-meowx-*.apk
   rm -f packages/luci-theme-aurora-*.apk
   curl -fL --retry 3 https://github.com/eamonxg/luci-theme-aurora/releases/download/v1.4.0/luci-theme-aurora-1.4.0-r20260920.apk -o packages/luci-theme-aurora-1.4.0-r20260920.apk
   echo '05f9015e0a4e2859f6a153f69e472f2984481490d4ce6db19b8a41bba7264f1e  packages/luci-theme-aurora-1.4.0-r20260920.apk' | sha256sum -c -
@@ -84,9 +86,11 @@ if [ "${CUSTOM_BYPASS:-0}" = "1" ]; then
   printf '%s\n' "${RELEASE_TAG:-development}" > files/etc/johnnywrt-release
   cp custom25/johnny-update custom25/johnny-meow-action files/usr/libexec/
   cp custom25/johnny-ui-layout.uc files/usr/libexec/
+  cp custom25/johnny-dashboard-defaults.uc custom25/johnny-dashboard-defaults.js custom25/johnny-dashboard-worker.js files/usr/libexec/
   chmod 755 files/usr/libexec/johnny-update files/usr/libexec/johnny-meow-action
   mkdir -p files/www/luci-static/resources/johnny files/usr/share/luci/menu.d files/usr/share/rpcd/acl.d
   cp custom25/johnny-update.js files/www/luci-static/resources/johnny/update.js
+  cp custom25/johnny-meowx-bridge.js files/www/luci-static/resources/johnny/meowx-bridge.js
   cp custom25/johnny-update-menu.json files/usr/share/luci/menu.d/johnny-update.json
   cp custom25/johnny-update-acl.json files/usr/share/rpcd/acl.d/johnny-update.json
   mkdir -p files/usr/share/rpcd/ucode files/www/luci-static/resources/view/johnny

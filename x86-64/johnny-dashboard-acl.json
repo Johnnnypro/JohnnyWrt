@@ -6,8 +6,11 @@
       "uci": ["network", "dhcp", "firewall", "meowx", "zerotier"]
     },
     "write": {
-      "ubus": { "luci.johnny": ["join", "meow_action", "probe"], "luci.meowx": ["panel_profile", "switch_profile", "refresh_subscription"] },
+      "ubus": { "luci.johnny": ["join", "meow_action", "probe", "dashboard_defaults"], "luci.meowx": ["panel_profile", "switch_profile", "refresh_subscription"] },
       "uci": ["network", "dhcp", "firewall", "meowx"]
     }
+  },
+  "luci-app-meowx": {
+    "write": { "ubus": { "luci.johnny": ["dashboard_defaults"] } }
   }
 }

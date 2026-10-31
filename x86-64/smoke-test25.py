@@ -78,6 +78,7 @@ test -z "$(jsonfilter -i /usr/share/luci/menu.d/johnny-update.json -e '@["admin/
 grep -q johnny_online_update /www/luci-static/resources/view/system/flash.js
 test -s /www/luci-static/resources/johnny/update.js
 sh /tmp/test-ui-layout.sh
+sh /tmp/test-dashboard-defaults.sh
 # Profile validation must work even when every geodata URL is unreachable.
 (cd /etc/meowx/run && sha256sum -c geodata.sha256)
 for mode in false true; do
@@ -210,7 +211,7 @@ echo JOHNNY_BOOT_TEST_PASSED
 plans = image.parent / 'network-test-plans.json'
 subprocess.run(['node', str(Path(__file__).with_name('network-test-plans.js')), str(plans)], check=True)
 inputs = [(name, Path(__file__).with_name(name)) for name in
-          ('test-ui-layout.sh', 'test-dashboard-api.sh', 'test-meow-actions.sh', 'test-network-apply.uc', 'test-johnny-probe.sh', 'test-johnny-probe.uc', 'test-quickstart.sh', 'test-johnny-nat-diagnostics.sh', 'test-subscription-refresh.sh')]
+          ('test-ui-layout.sh', 'test-dashboard-api.sh', 'test-meow-actions.sh', 'test-network-apply.uc', 'test-johnny-probe.sh', 'test-johnny-probe.uc', 'test-quickstart.sh', 'test-johnny-nat-diagnostics.sh', 'test-subscription-refresh.sh', 'test-dashboard-defaults.sh')]
 inputs.append(('johnny-network-plans.json', plans))
 for name, source in inputs:
     content = source.read_text(encoding='utf-8').rstrip('\n') + '\n'
