@@ -111,6 +111,10 @@ def wait_ssh(previous_boot=None):
 
 def retention_snapshot(client, paths, phase):
     sums = dict(line.split(maxsplit=1)[::-1] for line in run(client, 'sha256sum ' + ' '.join(paths)).splitlines())
+    config = run(client, 'cat /etc/config/meowx', sensitive=True).encode()
+    # MeowX 0.2.0 appends this disabled default; retain evidence of every original byte.
+    addition = b"config ggy 'ggy'\n\toption enabled '0'\n\n"
+    without_ggy = hashlib.sha256(config[:-len(addition)]).hexdigest() if config.endswith(addition) else None
     # Record names and hashes only: never put passwords or identity keys in logs.
     fields = {}
     for line in run(client, 'uci -q show network; uci -q show meowx; uci -q show zerotier', sensitive=True).splitlines():
@@ -123,12 +127,32 @@ def retention_snapshot(client, paths, phase):
         name, _, value = line.partition(':')
         accounts[name] = hashlib.sha256(value.encode()).hexdigest()
     snapshot = {'files': sums, 'uci_fields': fields, 'shadow_accounts': accounts,
+                'meowx_without_default_ggy_sha256': without_ggy,
                 'uptime': run(client, 'cut -d " " -f 1 /proc/uptime').strip(),
                 'file_metadata': run(client, 'ls -ln ' + ' '.join(paths)).splitlines(),
                 'pending_uci_keys': [line.partition('=')[0] for line in run(client, 'uci changes', sensitive=True).splitlines()
                                      if line.lstrip('-').startswith(('network.', 'meowx.', 'zerotier.'))]}
     (image.parent / f'retention-{phase}.json').write_text(json.dumps(snapshot, indent=2))
     return snapshot
+
+
+def assert_retained(baseline, current):
+    meowx = '/etc/config/meowx'
+    changed = [path for path in baseline['files'].keys() | current['files'].keys()
+               if current['files'].get(path) != baseline['files'].get(path)]
+    expected_fields = dict(baseline['uci_fields'])
+    migrated = (meowx in changed
+                and not any(k == 'meowx.ggy' or k.startswith('meowx.ggy.') for k in expected_fields)
+                and current.get('meowx_without_default_ggy_sha256') == baseline['files'][meowx])
+    if migrated:
+        changed.remove(meowx)
+        expected_fields.update({'meowx.ggy': hashlib.sha256(b'ggy').hexdigest(),
+                                'meowx.ggy.enabled': hashlib.sha256(b"'0'").hexdigest()})
+    assert not changed, 'Retained settings changed: ' + ', '.join(changed)
+    assert current['uci_fields'] == expected_fields, 'Retained UCI fields changed beyond the known disabled GGY migration'
+    assert current['shadow_accounts'] == baseline['shadow_accounts'], 'Retained account hashes changed'
+    assert not current['pending_uci_keys'], 'Pending configuration changes'
+    return migrated
 
 
 try:
@@ -202,16 +226,14 @@ test -s /etc/zerotier/identity.secret
             run(client, 'sh /tmp/test-update-metadata.sh /usr/libexec/johnny-update /tmp/upgrade.img.gz')
         run(client, 'sysupgrade -T /tmp/upgrade.img.gz')
         before = retention_snapshot(client, retained, f'round-{round_number}-before')
-        changed = [path for path in retained if before['files'][path] != baseline['files'][path]]
-        assert not changed, 'Settings changed before flashing: ' + ', '.join(changed)
-        assert not before['pending_uci_keys'], 'Pending configuration changes before flashing'
+        assert_retained(baseline, before)
         boot = run(client, 'cat /proc/sys/kernel/random/boot_id').strip()
         run(client, "(trap '' HUP; sleep 2; sysupgrade /tmp/upgrade.img.gz) >/tmp/upgrade.log 2>&1 </dev/null &")
         client.close()
         client = wait_ssh(boot)
         actual = retention_snapshot(client, retained, f'round-{round_number}-after')
-        changed = [path for path in retained if actual['files'][path] != baseline['files'][path]]
-        assert not changed, 'Retained settings changed: ' + ', '.join(changed)
+        if assert_retained(baseline, actual):
+            print('PASS: only the official disabled GGY default was appended; original config bytes and fields are unchanged', flush=True)
         with client.open_sftp() as sftp:
             sftp.put(str(Path(__file__).with_name('test-update-metadata.sh')), '/tmp/test-update-metadata.sh')
             sftp.put(str(Path(__file__).with_name('test-ui-layout.sh')), '/tmp/test-ui-layout.sh')
