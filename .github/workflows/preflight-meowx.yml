@@ -1,0 +1,55 @@
+name: Verify MeowX update without compiling
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run all source checks before booting
+        run: |
+          sh x86-64/test-ssh-qos.sh
+          sh x86-64/test-custom25.sh
+          sh x86-64/test-distfeeds.sh
+          node --test x86-64/test-update-ui.js x86-64/test-johnny-model.js x86-64/test-johnny-ui.js x86-64/test-johnny-connectivity.js x86-64/test-johnny-theme.js x86-64/test-johnny-theme-ui.js x86-64/test-meowx-dashboard.js
+          python3 x86-64/test-upgrade-readiness.py
+          python3 x86-64/test-retention-evidence.py
+          python3 x86-64/test-smoke-input.py
+          python3 x86-64/test-meowx-versions.py
+          node x86-64/preflight.js
+          bash -n x86-64/build25.sh
+      - name: Download verified previous releases and test dependencies
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir diagnostic previous-release
+          gh release download Johnnywrt-ISO-25.12.2-1793253531 --repo Johnnnypro/JohnnyWrt --pattern Johnnywrt-x86_64-squashfs-combined-efi.img.gz --dir diagnostic
+          mv diagnostic/*.img.gz diagnostic/firmware.img.gz
+          echo 'e62255d81a5a78094b5ba8d47f92f5fe3760857038a1ff81410f0c6e2df05799  diagnostic/firmware.img.gz' | sha256sum -c -
+          gh release download Johnnywrt-ISO-25.12.2-1793177592 --repo Johnnnnnnnyx/ImmortalWrt-ImageBuilder --pattern Johnnywrt-x86_64-squashfs-combined-efi.img.gz --dir previous-release
+          echo 'aaf4f7cc25d026f5e24d38affdfcf589c6f1f50ac8883c88ffd48edef9df1956  previous-release/Johnnywrt-x86_64-squashfs-combined-efi.img.gz' | sha256sum -c -
+          gzip -dc previous-release/*.img.gz > previous-release/base.img
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf
+          python3 -m pip install paramiko==3.5.1
+      - name: Verify current MeowX source through full CI serial smoke
+        run: python3 x86-64/preflight-meowx.py diagnostic/firmware.img.gz
+      - name: Verify the saved release upgrade baseline
+        run: |
+          python3 x86-64/test-sysupgrade.py previous-release/base.img diagnostic/firmware.img.gz
+          echo 'e62255d81a5a78094b5ba8d47f92f5fe3760857038a1ff81410f0c6e2df05799  diagnostic/firmware.img.gz' | sha256sum -c -
+      - name: Save read-only verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: meowx-preflight-${{ github.run_id }}
+          path: |
+            diagnostic/boot-test.log
+            diagnostic/upgrade-test.log
+            diagnostic/retention-*.json
+          if-no-files-found: ignore
+          retention-days: 7

@@ -125,15 +125,12 @@ class SmokeInputTest(unittest.TestCase):
             self.assertIn('PASS: serial test input', result.stdout)
 
     def test_overlong_test_source_is_rejected_before_boot(self):
-        for source in ('test-dashboard-api.sh', 'test-johnny-nat-diagnostics.sh', 'test-subscription-refresh.sh'):
+        for source in ('test-dashboard-api.sh', 'test-johnny-nat-diagnostics.sh', 'test-subscription-refresh.sh', 'test-dashboard-defaults.sh'):
             with self.subTest(source=source), tempfile.TemporaryDirectory() as directory:
                 target = Path(directory)
-                for name in ('smoke-test25.py', 'network-test-plans.js', 'johnny-model.js',
-                             'test-ui-layout.sh', 'test-dashboard-api.sh', 'test-meow-actions.sh',
-                             'test-network-apply.uc', 'test-johnny-probe.sh',
-                             'test-johnny-probe.uc', 'test-quickstart.sh', 'test-johnny-nat-diagnostics.sh',
-                             'test-subscription-refresh.sh'):
-                    shutil.copyfile(root / name, target / name)
+                # Exercise the real source bundle, including newly added inputs.
+                # A second hand-maintained dependency list can mask this guard.
+                shutil.copytree(root, target, dirs_exist_ok=True, ignore=shutil.ignore_patterns('__pycache__'))
                 with (target / source).open('a', encoding='utf-8') as output:
                     output.write('\n#' + 'x' * 500 + '\n')
                 result = subprocess.run([sys.executable, str(target / 'smoke-test25.py'),
