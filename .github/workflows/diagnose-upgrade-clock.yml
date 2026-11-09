@@ -30,7 +30,14 @@ jobs:
           qemu-system-x86_64 --version > verification/environment.txt
           dpkg-query -W qemu-system-x86 seabios >> verification/environment.txt
           lscpu >> verification/environment.txt
-          cat /sys/fs/cgroup/cpu.max /sys/fs/cgroup/cpu.stat >> verification/environment.txt
+          for path in /proc/self/cgroup /sys/fs/cgroup/cpu.max /sys/fs/cgroup/cpu.stat /sys/fs/cgroup/cpu/cpu.cfs_quota_us /sys/fs/cgroup/cpu/cpu.cfs_period_us /sys/fs/cgroup/cpu/cpu.stat; do
+            if [ -r "$path" ]; then
+              printf '%s\n' "$path" >> verification/environment.txt
+              cat "$path" >> verification/environment.txt
+            else
+              printf 'Unavailable: %s\n' "$path" >> verification/environment.txt
+            fi
+          done
       - name: Observe both original upgrades without changing the gate
         run: python3 -u x86-64/diagnose-upgrade-clock.py verification/previous/base.img verification/upgrade/firmware.img.gz
       - name: Preserve original outcome and timing evidence
