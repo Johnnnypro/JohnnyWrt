@@ -10,7 +10,7 @@ permissions:
 jobs:
   diagnose:
     runs-on: ubuntu-22.04
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v6
       - name: Prepare original firmware and record VM environment
@@ -25,11 +25,15 @@ jobs:
           echo 'aaf4f7cc25d026f5e24d38affdfcf589c6f1f50ac8883c88ffd48edef9df1956  verification/previous/Johnnywrt-x86_64-squashfs-combined-efi.img.gz' | sha256sum -c -
           gzip -dc verification/previous/*.img.gz > verification/previous/base.img
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends qemu-system-x86
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 acl
           python3 -m pip install paramiko==3.5.1
           qemu-system-x86_64 --version > verification/environment.txt
           dpkg-query -W qemu-system-x86 seabios >> verification/environment.txt
           lscpu >> verification/environment.txt
+          test -c /dev/kvm
+          sudo setfacl -m "u:$(id -un):rw" /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+          ls -l /dev/kvm >> verification/environment.txt
           for path in /proc/self/cgroup /sys/fs/cgroup/cpu.max /sys/fs/cgroup/cpu.stat /sys/fs/cgroup/cpu/cpu.cfs_quota_us /sys/fs/cgroup/cpu/cpu.cfs_period_us /sys/fs/cgroup/cpu/cpu.stat; do
             if [ -r "$path" ]; then
               printf '%s\n' "$path" >> verification/environment.txt
@@ -38,8 +42,31 @@ jobs:
               printf 'Unavailable: %s\n' "$path" >> verification/environment.txt
             fi
           done
-      - name: Observe both original upgrades without changing the gate
-        run: python3 -u x86-64/diagnose-upgrade-clock.py verification/previous/base.img verification/upgrade/firmware.img.gz
+      - name: Compare TCG and KVM on the same host with both original upgrades
+        run: |
+          result=0
+          for accelerator in tcg kvm; do
+            mkdir -p "verification/$accelerator"
+            cp verification/upgrade/firmware.img.gz "verification/$accelerator/firmware.img.gz"
+            if python3 -u x86-64/diagnose-upgrade-clock.py verification/previous/base.img "verification/$accelerator/firmware.img.gz" --accel "$accelerator"; then
+              printf '%s PASS\n' "$accelerator" >> verification/results.txt
+            else
+              printf '%s FAIL\n' "$accelerator" >> verification/results.txt
+              result=1
+            fi
+          done
+          exit "$result"
+      - name: Require recorded KVM acceleration without a software fallback
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          records = [json.loads(line) for line in Path('verification/kvm/upgrade-cpu.jsonl').read_text().splitlines()]
+          states = [r['query-kvm']['return'] for r in records if 'return' in r.get('query-kvm', {})]
+          assert states and all(s.get('enabled') is True for s in states), states
+          print('KVM enabled in all', len(states), 'recorded samples')
+          PY
       - name: Preserve original outcome and timing evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -47,11 +74,18 @@ jobs:
           name: upgrade-clock-${{ github.run_id }}
           path: |
             verification/environment.txt
-            verification/upgrade/*.log
-            verification/upgrade/*.jsonl
-            verification/upgrade/upgrade-network.pcap
-            verification/upgrade/upgrade-test-screen.ppm
-            verification/upgrade/upgrade-failed.img.gz
-            verification/upgrade/retention-*.json
+            verification/results.txt
+            verification/tcg/*.log
+            verification/tcg/*.jsonl
+            verification/tcg/*.pcap
+            verification/tcg/upgrade-test-screen.ppm
+            verification/tcg/upgrade-failed.img.gz
+            verification/tcg/retention-*.json
+            verification/kvm/*.log
+            verification/kvm/*.jsonl
+            verification/kvm/*.pcap
+            verification/kvm/upgrade-test-screen.ppm
+            verification/kvm/upgrade-failed.img.gz
+            verification/kvm/retention-*.json
           if-no-files-found: error
           retention-days: 7

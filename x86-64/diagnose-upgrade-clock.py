@@ -18,13 +18,17 @@ def observe_vm():
                         monitor.connect(str(monitor_path))
                         with monitor.makefile('rwb', buffering=0) as stream:
                             stream.readline()
-                            for command, arguments in [('qmp_capabilities', {}), ('query-cpus-fast', {}),
-                                    ('human-monitor-command', {'command-line': 'info registers -a'})]:
+                            for command, arguments in [('qmp_capabilities', {}), ('query-kvm', {}), ('query-cpus-fast', {}),
+                                    ('human-monitor-command', {'command-line': 'info registers -a'}),
+                                    ('human-monitor-command', {'command-line': 'xp /32bx 0x0301d000'})]:
+                                if observer_stop.is_set():
+                                    break
                                 stream.write((json.dumps({'execute': command, 'arguments': arguments, 'id': command}) + '\n').encode())
                                 while response := stream.readline():
                                     response = json.loads(response)
                                     if response.get('id') == command:
-                                        record[command] = response
+                                        key = arguments.get('command-line', command)
+                                        record[key] = response
                                         break
                     record['threads'] = {str(p): p.read_text() for name in ('stat', 'wchan')
                                          for p in Path(f'/proc/{qemu.pid}/task').glob('*/' + name)}
