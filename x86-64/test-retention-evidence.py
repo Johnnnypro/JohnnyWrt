@@ -85,6 +85,65 @@ class EvidenceTest(unittest.TestCase):
         with self.assertRaises(AssertionError):
             check(baseline, snapshot(old + addition, fields + added_fields))
 
+    def test_current_disabled_defaults_preserve_each_existing_section(self):
+        check, snapshot, old, fields, ggy, ggy_fields = self.migration_fixture()
+        blocks = [
+            (ggy, ggy_fields),
+            ("config akile 'akile'\n\toption enabled '0'\n\n", "meowx.akile=akile\nmeowx.akile.enabled='0'\n"),
+            ("config mesh 'mesh'\n\toption enabled '0'\n\toption force_map '0'\n\toption router_access '0'\n\n",
+             "meowx.mesh=mesh\nmeowx.mesh.enabled='0'\nmeowx.mesh.force_map='0'\nmeowx.mesh.router_access='0'\n")]
+        for mask in range(8):
+            existing = [b for i, b in enumerate(blocks) if mask & (1 << i)]
+            missing = [b for i, b in enumerate(blocks) if not mask & (1 << i)]
+            config = old + ''.join(b[0].replace("'0'", "'1'") for b in existing)
+            values = fields + ''.join(b[1].replace("'0'", "'1'") for b in existing)
+            baseline = snapshot(config, values)
+            current = snapshot(config + ''.join(b[0] for b in missing), values + ''.join(b[1] for b in missing))
+            original = copy.deepcopy(baseline)
+            with self.subTest(existing=mask):
+                self.assertEqual(bool(check(baseline, current)), bool(missing))
+                self.assertEqual(bool(check(baseline, current)), bool(missing))
+                self.assertEqual(baseline, original)
+                if existing:
+                    with self.assertRaises(AssertionError):
+                        check(baseline, snapshot(config.replace("'1'", "'0'") + ''.join(b[0] for b in missing),
+                                                 values.replace("'1'", "'0'") + ''.join(b[1] for b in missing)))
+
+    def test_current_defaults_reject_enabled_extended_reordered_or_changed_originals(self):
+        check, snapshot, old, fields, ggy, ggy_fields = self.migration_fixture()
+        akile = "config akile 'akile'\n\toption enabled '0'\n\n"
+        mesh = "config mesh 'mesh'\n\toption enabled '0'\n\toption force_map '0'\n\toption router_access '0'\n\n"
+        extra_fields = ggy_fields + "meowx.akile=akile\nmeowx.akile.enabled='0'\nmeowx.mesh=mesh\nmeowx.mesh.enabled='0'\nmeowx.mesh.force_map='0'\nmeowx.mesh.router_access='0'\n"
+        suffix = ggy + akile + mesh
+        baseline = snapshot(old, fields)
+        variants = [suffix.replace("'0'", "'1'"), suffix + "\toption url 'unexpected'\n", mesh + ggy + akile,
+                    suffix.replace('force_map', 'unknown'), suffix.replace('\t', '  '), suffix + mesh]
+        for addition in variants:
+            with self.subTest(addition=addition), self.assertRaises(AssertionError):
+                check(baseline, snapshot(old + addition, fields + extra_fields))
+        with self.assertRaises(AssertionError):
+            check(baseline, snapshot(old.replace('KEEP', 'LOST') + suffix, fields + extra_fields))
+        current = snapshot(old + suffix, fields + extra_fields)
+        current['uci_fields']['meowx.mesh.enabled'] = hashlib.sha256(b"'1'").hexdigest()
+        with self.assertRaises(AssertionError):
+            check(baseline, current)
+
+    def test_package_migration_requires_exact_installed_versions(self):
+        source = Path(__file__).with_name('test-sysupgrade.py')
+        tree = ast.parse(source.read_text())
+        functions = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'verify_package_versions']
+        self.assertEqual(len(functions), 1)
+        expected = json.loads(source.with_name('meowx-versions.json').read_text())
+        good = '\n'.join(name + '-' + version for name, version in expected.items())
+        for output in (good, good.replace('0.5.0-r1', '0.4.6-r1'), '\n'.join(good.splitlines()[1:]), ''):
+            namespace = dict(json=json, Path=Path, __file__=str(source), run=lambda *a: output)
+            exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), 'exec'), namespace)
+            if output == good:
+                namespace['verify_package_versions'](None)
+            else:
+                with self.subTest(output=output), self.assertRaises(AssertionError):
+                    namespace['verify_package_versions'](None)
+
     def test_evidence_has_file_and_field_hashes_without_secret_values(self):
         source = Path(__file__).with_name('test-sysupgrade.py')
         tree = ast.parse(source.read_text(encoding='utf-8'))

@@ -39,6 +39,11 @@ jobs:
           python3 -m pip install paramiko==3.5.1
       - name: Verify current MeowX source through full CI serial smoke
         run: python3 x86-64/preflight-meowx.py diagnostic/firmware.img.gz
+      - name: Verify official MeowX migration from original legacy settings
+        run: |
+          mkdir vendor-migration
+          cp diagnostic/firmware.img.gz vendor-migration/firmware.img.gz
+          python3 x86-64/test-sysupgrade.py previous-release/base.img vendor-migration/firmware.img.gz --package-migration-only
       - name: Verify the saved release upgrade baseline
         run: |
           python3 x86-64/test-sysupgrade.py previous-release/base.img diagnostic/firmware.img.gz
@@ -52,5 +57,7 @@ jobs:
             diagnostic/boot-test.log
             diagnostic/upgrade-test.log
             diagnostic/retention-*.json
+            vendor-migration/upgrade-test.log
+            vendor-migration/retention-*.json
           if-no-files-found: ignore
           retention-days: 7

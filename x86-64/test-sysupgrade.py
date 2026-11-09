@@ -24,6 +24,7 @@ parser.add_argument('image', type=Path)
 parser.add_argument('--machine', choices=('pc', 'q35'), default='pc')
 parser.add_argument('--accel', choices=('tcg', 'kvm'), default='tcg')
 parser.add_argument('--reboot-only', action='store_true')
+parser.add_argument('--package-migration-only', action='store_true')
 args = parser.parse_args()
 base, image = args.base.resolve(), args.image.resolve()
 disk = image.parent / 'upgrade-test.img'
@@ -109,12 +110,25 @@ def wait_ssh(previous_boot=None):
     raise RuntimeError('SSH, overlay and network did not become ready: ' + last_status)
 
 
+def verify_package_versions(client):
+    expected = json.loads(Path(__file__).with_name('meowx-versions.json').read_text())
+    actual = set(run(client, 'apk info -e -v ' + ' '.join(expected)).splitlines())
+    assert actual == {name + '-' + version for name, version in expected.items()}, 'Installed MeowX versions differ: ' + repr(actual)
+    print('PASS: installed MeowX versions match the pinned manifest', flush=True)
+
+
 def retention_snapshot(client, paths, phase):
     sums = dict(line.split(maxsplit=1)[::-1] for line in run(client, 'sha256sum ' + ' '.join(paths)).splitlines())
     config = run(client, 'cat /etc/config/meowx', sensitive=True).encode()
-    # MeowX 0.2.0 appends this disabled default; retain evidence of every original byte.
-    addition = b"config ggy 'ggy'\n\toption enabled '0'\n\n"
-    without_ggy = hashlib.sha256(config[:-len(addition)]).hexdigest() if config.endswith(addition) else None
+    # Only these exact vendor defaults may be appended; hash every original byte.
+    defaults = {'ggy': ['enabled'], 'akile': ['enabled'], 'mesh': ['enabled', 'force_map', 'router_access']}
+    prefixes = {}
+    for mask in range(1, 8):
+        names = [name for i, name in enumerate(defaults) if mask & (1 << i)]
+        addition = ''.join("config %s '%s'\n" % (name, name) +
+                           ''.join("\toption %s '0'\n" % key for key in defaults[name]) + '\n' for name in names).encode()
+        if config.endswith(addition):
+            prefixes[','.join(names)] = hashlib.sha256(config[:-len(addition)]).hexdigest()
     # Record names and hashes only: never put passwords or identity keys in logs.
     fields = {}
     for line in run(client, 'uci -q show network; uci -q show dhcp; uci -q show firewall; uci -q show meowx; uci -q show zerotier', sensitive=True).splitlines():
@@ -127,7 +141,7 @@ def retention_snapshot(client, paths, phase):
         name, _, value = line.partition(':')
         accounts[name] = hashlib.sha256(value.encode()).hexdigest()
     snapshot = {'files': sums, 'uci_fields': fields, 'shadow_accounts': accounts,
-                'meowx_without_default_ggy_sha256': without_ggy,
+                'meowx_before_defaults': prefixes,
                 'uptime': run(client, 'cut -d " " -f 1 /proc/uptime').strip(),
                 'file_metadata': run(client, 'ls -ln ' + ' '.join(paths)).splitlines(),
                 'pending_uci_keys': [line.partition('=')[0] for line in run(client, 'uci changes', sensitive=True).splitlines()
@@ -141,15 +155,22 @@ def assert_retained(baseline, current):
     changed = [path for path in baseline['files'].keys() | current['files'].keys()
                if current['files'].get(path) != baseline['files'].get(path)]
     expected_fields = dict(baseline['uci_fields'])
-    migrated = (meowx in changed
-                and not any(k == 'meowx.ggy' or k.startswith('meowx.ggy.') for k in expected_fields)
-                and current.get('meowx_without_default_ggy_sha256') == baseline['files'][meowx])
-    if migrated:
+    defaults = {'ggy': ['enabled'], 'akile': ['enabled'], 'mesh': ['enabled', 'force_map', 'router_access']}
+    migrated = False
+    for mask in range(1, 8):
+        names = [name for i, name in enumerate(defaults) if mask & (1 << i)]
+        if meowx not in changed or current.get('meowx_before_defaults', {}).get(','.join(names)) != baseline['files'][meowx]:
+            continue
+        if any(k == 'meowx.' + name or k.startswith('meowx.' + name + '.') for name in names for k in expected_fields):
+            continue
         changed.remove(meowx)
-        expected_fields.update({'meowx.ggy': hashlib.sha256(b'ggy').hexdigest(),
-                                'meowx.ggy.enabled': hashlib.sha256(b"'0'").hexdigest()})
+        for name in names:
+            expected_fields['meowx.' + name] = hashlib.sha256(name.encode()).hexdigest()
+            expected_fields.update({'meowx.' + name + '.' + key: hashlib.sha256(b"'0'").hexdigest() for key in defaults[name]})
+        migrated = True
+        break
     assert not changed, 'Retained settings changed: ' + ', '.join(changed)
-    assert current['uci_fields'] == expected_fields, 'Retained UCI fields changed beyond the known disabled GGY migration'
+    assert current['uci_fields'] == expected_fields, 'Retained UCI fields changed beyond the known disabled vendor defaults'
     assert current['shadow_accounts'] == baseline['shadow_accounts'], 'Retained account hashes changed'
     assert not current['pending_uci_keys'], 'Pending configuration changes'
     return migrated
@@ -219,6 +240,20 @@ test -s /etc/zerotier/identity.secret
                 '/etc/zerotier/networks.d/0123456789abcdef.local.conf',
                 '/etc/meowx/subscriptions/upgrade-test.yaml']
     baseline = retention_snapshot(client, retained, 'baseline')
+    if args.package_migration_only:
+        print(run(client, 'apk update && apk upgrade meowx meowx-core luci-app-meowx luci-i18n-meowx-zh-cn'), flush=True)
+        verify_package_versions(client)
+        assert_retained(baseline, retention_snapshot(client, retained, 'after-packages'))
+        boot = run(client, 'cat /proc/sys/kernel/random/boot_id').strip()
+        run(client, "(trap '' HUP; sleep 2; reboot) >/tmp/migration-reboot.log 2>&1 </dev/null &")
+        client.close()
+        client = wait_ssh(boot)
+        assert_retained(baseline, retention_snapshot(client, retained, 'after-reboot'))
+        verify_package_versions(client)
+        print('PASS: original settings preserved after official MeowX package migration and reboot', flush=True)
+        client.close()
+        completed = True
+        sys.exit(0)
     baseline_repository = json.loads(run(client, '/usr/libexec/johnny-update status'))['repository'].removesuffix('/releases')
     assert baseline_repository in ('https://github.com/Johnnnypro/JohnnyWrt', 'https://github.com/Johnnnnnnnyx/ImmortalWrt-ImageBuilder')
     with client.open_sftp() as sftp:
@@ -240,7 +275,7 @@ test -s /etc/zerotier/identity.secret
         client = wait_ssh(boot)
         actual = retention_snapshot(client, retained, f'round-{round_number}-after')
         if assert_retained(baseline, actual):
-            print('PASS: only the official disabled GGY default was appended; original config bytes and fields are unchanged', flush=True)
+            print('PASS: only exact official disabled defaults were appended; original config bytes and fields are unchanged', flush=True)
         with client.open_sftp() as sftp:
             sftp.put(str(Path(__file__).with_name('test-update-metadata.sh')), '/tmp/test-update-metadata.sh')
             sftp.put(str(Path(__file__).with_name('test-ui-layout.sh')), '/tmp/test-ui-layout.sh')
