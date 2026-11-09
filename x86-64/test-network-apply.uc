@@ -1,5 +1,5 @@
 // Destructive network tests ONLY inside a disposable two-NIC firmware guest.
-import { readfile, writefile } from 'fs';
+import { readfile, writefile, glob } from 'fs';
 import { connect } from 'ubus';
 import { cursor } from 'uci';
 let c=connect();
@@ -8,7 +8,7 @@ function rpc(object,method,args) {
     assert(!error, object+'.'+method+': '+error);
     return reply;
 }
-let sid=rpc('session','create',{timeout:300}).ubus_rpc_session;
+let sid=rpc('session','create',{timeout:600}).ubus_rpc_session;
 rpc('session','grant',{ubus_rpc_session:sid,scope:'uci',objects:[['*','*']]});
 function call(method,args) { return rpc('uci',method,{...args,ubus_rpc_session:sid}); }
 let saved={};
@@ -16,6 +16,20 @@ for(let name in ['network','dhcp','firewall','meowx','zerotier']) saved[name]=re
 let u=cursor(),names={fixture_bridge:'johnny_bridge',fixture_lan:'johnny_lan',fixture_wan:'johnny_wan'};
 u.foreach('network','device',s=>{if(s.name=='br-lan')names.fixture_bridge=s['.name'];});
 u.foreach('firewall','zone',s=>{if(s.name=='lan')names.fixture_lan=s['.name'];if(s.name=='wan')names.fixture_wan=s['.name'];});
+let baselinePorts=join(sort(map(u.get('network',names.fixture_bridge,'ports'),p=>'/sys/class/net/br-lan/brif/'+p)),',');
+let baselineIPv6=trim(readfile('/proc/sys/net/ipv6/conf/br-lan/disable_ipv6'));
+function wait_baseline_runtime() {
+    let stable=0;
+    for (let i=0;i<60;i++) {
+        let lan=c.call('network.interface.lan','status',{})||{};
+        let ports=join(sort(glob('/sys/class/net/br-lan/brif/*')),',');
+        let ipv6=trim(readfile('/proc/sys/net/ipv6/conf/br-lan/disable_ipv6')||'');
+        stable=lan.up&&!lan.pending&&ports==baselinePorts&&ipv6==baselineIPv6?stable+1:0;
+        if(stable==2)return;
+        sleep(500);
+    }
+    assert(false,'rollback runtime did not restore LAN, bridge ports and IPv6 within 30 seconds');
+}
 function stage(plan) {
     for(let item in plan.deletes) {
         let values=call('get',{config:item.config}).values;
@@ -34,6 +48,7 @@ function stage(plan) {
 }
 let failure;
 try {
+    wait_baseline_runtime();
     for(let plan in json(readfile('/tmp/johnny-network-plans.json'))) {
         printf('NETWORK_TEST_BEGIN %s/%s IPv6=%J\n',plan.role,plan.protocol,plan.ipv6);
         stage(plan);
@@ -73,6 +88,8 @@ try {
         sleep(9000);
         for(let name,text in saved) assert(readfile('/etc/config/'+name)==text,'rollback changed '+name);
         for(let name in ['network','dhcp','firewall'])call('revert',{config:name});
+        // Restored UCI files do not mean netifd has finished rebuilding the bridge.
+        wait_baseline_runtime();
         printf('PASS: %s/%s IPv6=%J native apply and automatic rollback\n',plan.role,plan.protocol,plan.ipv6);
     }
     call('set',{config:'network',section:'lan',values:{hostname:'johnny-confirm-test'}});
