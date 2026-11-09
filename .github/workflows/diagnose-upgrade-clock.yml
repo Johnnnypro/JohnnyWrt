@@ -1,0 +1,50 @@
+name: Diagnose saved firmware upgrade boot timing
+on:
+  workflow_dispatch:
+  push:
+    branches: [release/26.11.10]
+    paths: [.github/workflows/diagnose-upgrade-clock.yml, x86-64/diagnose-upgrade-clock.py]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - name: Prepare original firmware and record VM environment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p verification/previous verification/upgrade
+          gh run download 42695299980 --repo Johnnnypro/JohnnyWrt --name firmware-diagnostics-15 --dir saved
+          cp saved/bin/targets/x86/64/*squashfs-combined-efi.img.gz verification/upgrade/firmware.img.gz
+          echo 'b5ef1af8cd23e99ad743580db3c1c050b554021fb7913c687a9a1975e3982cba  verification/upgrade/firmware.img.gz' | sha256sum -c -
+          gh release download Johnnywrt-ISO-25.12.2-1793177592 --repo Johnnnnnnnyx/ImmortalWrt-ImageBuilder --pattern Johnnywrt-x86_64-squashfs-combined-efi.img.gz --dir verification/previous
+          echo 'aaf4f7cc25d026f5e24d38affdfcf589c6f1f50ac8883c88ffd48edef9df1956  verification/previous/Johnnywrt-x86_64-squashfs-combined-efi.img.gz' | sha256sum -c -
+          gzip -dc verification/previous/*.img.gz > verification/previous/base.img
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qemu-system-x86
+          python3 -m pip install paramiko==3.5.1
+          qemu-system-x86_64 --version > verification/environment.txt
+          dpkg-query -W qemu-system-x86 seabios >> verification/environment.txt
+          lscpu >> verification/environment.txt
+          cat /sys/fs/cgroup/cpu.max /sys/fs/cgroup/cpu.stat >> verification/environment.txt
+      - name: Observe both original upgrades without changing the gate
+        run: python3 -u x86-64/diagnose-upgrade-clock.py verification/previous/base.img verification/upgrade/firmware.img.gz
+      - name: Preserve original outcome and timing evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upgrade-clock-${{ github.run_id }}
+          path: |
+            verification/environment.txt
+            verification/upgrade/*.log
+            verification/upgrade/*.jsonl
+            verification/upgrade/upgrade-network.pcap
+            verification/upgrade/upgrade-test-screen.ppm
+            verification/upgrade/upgrade-failed.img.gz
+            verification/upgrade/retention-*.json
+          if-no-files-found: error
+          retention-days: 7
