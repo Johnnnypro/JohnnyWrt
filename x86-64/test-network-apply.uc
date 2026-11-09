@@ -11,8 +11,8 @@ function rpc(object,method,args) {
 let sid=rpc('session','create',{timeout:1200}).ubus_rpc_session;
 rpc('session','grant',{ubus_rpc_session:sid,scope:'uci',objects:[['*','*']]});
 function call(method,args) { return rpc('uci',method,{...args,ubus_rpc_session:sid}); }
-let saved={};
-for(let name in ['network','dhcp','firewall','meowx','zerotier']) saved[name]=readfile('/etc/config/'+name);
+let original={},saved;
+for(let name in ['network','dhcp','firewall','meowx','zerotier']) original[name]=readfile('/etc/config/'+name);
 let u=cursor(),names={fixture_bridge:'johnny_bridge',fixture_lan:'johnny_lan',fixture_wan:'johnny_wan'};
 u.foreach('network','device',s=>{if(s.name=='br-lan')names.fixture_bridge=s['.name'];});
 u.foreach('firewall','zone',s=>{if(s.name=='lan')names.fixture_lan=s['.name'];if(s.name=='wan')names.fixture_wan=s['.name'];});
@@ -34,7 +34,7 @@ function runtime_matches(state,expected) {
 let baseline={proto:u.get('network','lan','proto'),
     ports:port_signature(map(u.get('network',names.fixture_bridge,'ports'),p=>'/sys/class/net/br-lan/brif/'+p)),
     ipv6:trim(readfile('/proc/sys/net/ipv6/conf/br-lan/disable_ipv6')),
-    wanIPv6:trim(readfile('/proc/sys/net/ipv6/conf/eth1/disable_ipv6'))};
+    wanIPv6:'1'};
 assert(type(baseline.ports)=='string'&&length(baseline.ports)>0,'baseline bridge ports are unavailable');
 function wait_runtime(expected,label,seconds) {
     let stable=0;
@@ -67,6 +67,17 @@ function stage(plan) {
 }
 let failure;
 try {
+    // Give WAN a persisted IPv6 setting: an implicit bridge-member flag can
+    // change when netifd releases/reclaims the device during role changes.
+    // This also tests that explicit enable overrides a pre-existing disable.
+    assert(!u.get('network','fixture_wan_device'),'unexpected fixture device already exists');
+    u.set('network','fixture_wan_device','device');
+    u.set('network','fixture_wan_device','name','eth1');
+    u.set('network','fixture_wan_device','ipv6','0');
+    u.commit('network');
+    rpc('network','reload',{});
+    saved={};
+    for(let name in keys(original))saved[name]=readfile('/etc/config/'+name);
     wait_runtime(baseline,'initial',30);
     for(let plan in json(readfile('/tmp/johnny-network-plans.json'))) {
         printf('NETWORK_TEST_BEGIN %s/%s IPv6=%J\n',plan.role,plan.protocol,plan.ipv6);
@@ -127,7 +138,7 @@ try {
     print('PASS: confirmed network change survives rollback timeout\n');
 } catch(e) { printf('NETWORK_TEST_FAILURE %J\n',e); failure=e; }
 {
-    for(let name,text in saved)writefile('/etc/config/'+name,text);
+    for(let name,text in original)writefile('/etc/config/'+name,text);
     rpc('session','destroy',{ubus_rpc_session:sid});
     rpc('uci','reload_config',{});
     c.disconnect();
