@@ -8,7 +8,7 @@ function rpc(object,method,args) {
     assert(!error, object+'.'+method+': '+error);
     return reply;
 }
-let sid=rpc('session','create',{timeout:600}).ubus_rpc_session;
+let sid=rpc('session','create',{timeout:1200}).ubus_rpc_session;
 rpc('session','grant',{ubus_rpc_session:sid,scope:'uci',objects:[['*','*']]});
 function call(method,args) { return rpc('uci',method,{...args,ubus_rpc_session:sid}); }
 let saved={};
@@ -16,19 +16,38 @@ for(let name in ['network','dhcp','firewall','meowx','zerotier']) saved[name]=re
 let u=cursor(),names={fixture_bridge:'johnny_bridge',fixture_lan:'johnny_lan',fixture_wan:'johnny_wan'};
 u.foreach('network','device',s=>{if(s.name=='br-lan')names.fixture_bridge=s['.name'];});
 u.foreach('firewall','zone',s=>{if(s.name=='lan')names.fixture_lan=s['.name'];if(s.name=='wan')names.fixture_wan=s['.name'];});
-let baselinePorts=join(sort(map(u.get('network',names.fixture_bridge,'ports'),p=>'/sys/class/net/br-lan/brif/'+p)),',');
-let baselineIPv6=trim(readfile('/proc/sys/net/ipv6/conf/br-lan/disable_ipv6'));
-function wait_baseline_runtime() {
+function port_signature(ports) { return join(',',sort(ports)); }
+assert(port_signature(['eth1','eth0'])=='eth0,eth1','bridge comparison must produce a nonempty port list');
+assert(port_signature(['eth0'])!=port_signature(['eth0','eth1']),'partial bridge must not equal restored bridge');
+function runtime_state() {
+    let lan=rpc('network.interface.lan','status',{});
+    return {up:lan.up,pending:lan.pending,proto:lan.proto,
+        ports:port_signature(glob('/sys/class/net/br-lan/brif/*')),
+        ipv6:trim(readfile('/proc/sys/net/ipv6/conf/br-lan/disable_ipv6')||''),
+        wanIPv6:trim(readfile('/proc/sys/net/ipv6/conf/eth1/disable_ipv6')||'')};
+}
+function runtime_matches(state,expected) {
+    return state.up&&!state.pending&&state.proto==expected.proto&&
+        state.ports==expected.ports&&state.ipv6==expected.ipv6&&
+        (expected.wanIPv6==null||state.wanIPv6==expected.wanIPv6);
+}
+let baseline={proto:u.get('network','lan','proto'),
+    ports:port_signature(map(u.get('network',names.fixture_bridge,'ports'),p=>'/sys/class/net/br-lan/brif/'+p)),
+    ipv6:trim(readfile('/proc/sys/net/ipv6/conf/br-lan/disable_ipv6')),
+    wanIPv6:trim(readfile('/proc/sys/net/ipv6/conf/eth1/disable_ipv6'))};
+assert(type(baseline.ports)=='string'&&length(baseline.ports)>0,'baseline bridge ports are unavailable');
+function wait_runtime(expected,label,seconds) {
     let stable=0;
-    for (let i=0;i<60;i++) {
-        let lan=c.call('network.interface.lan','status',{})||{};
-        let ports=join(sort(glob('/sys/class/net/br-lan/brif/*')),',');
-        let ipv6=trim(readfile('/proc/sys/net/ipv6/conf/br-lan/disable_ipv6')||'');
-        stable=lan.up&&!lan.pending&&ports==baselinePorts&&ipv6==baselineIPv6?stable+1:0;
+    let previous;
+    for (let i=0;i<seconds*2;i++) {
+        let state=runtime_state(),encoded=sprintf('%J',state);
+        if(encoded!=previous)printf('NETWORK_RUNTIME %s elapsed=%.1f actual=%s expected=%J\n',label,i/2,encoded,expected);
+        previous=encoded;
+        stable=runtime_matches(state,expected)?stable+1:0;
         if(stable==2)return;
         sleep(500);
     }
-    assert(false,'rollback runtime did not restore LAN, bridge ports and IPv6 within 30 seconds');
+    assert(false,label+' runtime did not reach expected LAN, bridge ports and IPv6 within '+seconds+' seconds');
 }
 function stage(plan) {
     for(let item in plan.deletes) {
@@ -48,12 +67,17 @@ function stage(plan) {
 }
 let failure;
 try {
-    wait_baseline_runtime();
+    wait_runtime(baseline,'initial',30);
     for(let plan in json(readfile('/tmp/johnny-network-plans.json'))) {
         printf('NETWORK_TEST_BEGIN %s/%s IPv6=%J\n',plan.role,plan.protocol,plan.ipv6);
         stage(plan);
-        call('apply',{rollback:true,timeout:10});
-        sleep(3000);
+        call('apply',{rollback:true,timeout:20});
+        let bridge=filter(plan.updates,item=>item.config=='network'&&item.section=='fixture_bridge')[0];
+        let expected={proto:plan.role=='main'?'static':plan.protocol,
+            ports:port_signature(map(bridge.values.ports,p=>'/sys/class/net/br-lan/brif/'+p)),
+            ipv6:type(plan.ipv6)=='bool'?(plan.ipv6?'0':'1'):baseline.ipv6};
+        if(plan.role=='main'&&type(plan.ipv6)=='bool')expected.wanIPv6=expected.ipv6;
+        wait_runtime(expected,'applied',15);
         let live=cursor();
         assert(live.get('network','lan','proto')==(plan.role=='main'?'static':plan.protocol));
         assert(live.get('dhcp','lan','ignore')==(plan.role=='main'?'0':'1'));
@@ -85,11 +109,14 @@ try {
             assert(system('fw4 check')==0,'IPv6 firewall validation failed');
         }
         // Deliberately do not confirm: native rpcd must restore the exact files.
-        sleep(9000);
+        for(let i=0;i<60;i++) {
+            if(length(filter(keys(saved),name=>readfile('/etc/config/'+name)!=saved[name]))==0)break;
+            sleep(500);
+        }
         for(let name,text in saved) assert(readfile('/etc/config/'+name)==text,'rollback changed '+name);
         for(let name in ['network','dhcp','firewall'])call('revert',{config:name});
         // Restored UCI files do not mean netifd has finished rebuilding the bridge.
-        wait_baseline_runtime();
+        wait_runtime(baseline,'rollback',30);
         printf('PASS: %s/%s IPv6=%J native apply and automatic rollback\n',plan.role,plan.protocol,plan.ipv6);
     }
     call('set',{config:'network',section:'lan',values:{hostname:'johnny-confirm-test'}});
