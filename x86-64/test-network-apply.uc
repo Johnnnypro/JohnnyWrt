@@ -21,6 +21,8 @@ assert(port_signature(['eth1','eth0'])=='eth0,eth1','bridge comparison must prod
 assert(port_signature(['eth0'])!=port_signature(['eth0','eth1']),'partial bridge must not equal restored bridge');
 function runtime_state() {
     let lan=rpc('network.interface.lan','status',{});
+    let dnsInstances=values(rpc('service','list',{name:'dnsmasq'}).dnsmasq?.instances||{});
+    let dnsRunning=length(dnsInstances)>0&&length(filter(dnsInstances,i=>!i.running))==0;
     let dump=rpc('network.interface','dump',{}).interface,interfaces={},clients=[],dhcpClients=[];
     for(let name in ['wan','wan6','wan_6','lan6']) {
         let iface=filter(dump,i=>i.interface==name)[0];
@@ -40,7 +42,7 @@ function runtime_state() {
     let dhcpReady=length(lan['ipv4-address']||[])>0&&
         length(filter(lan.route||[],r=>r.target=='0.0.0.0'&&r.mask==0&&r.nexthop))>0&&
         length(filter(lan['dns-server']||[],d=>index(resolver,'nameserver '+d)>=0))>0;
-    return {up:lan.up,pending:lan.pending,proto:lan.proto,dhcpClients,dhcpReady,
+    return {up:lan.up,pending:lan.pending,proto:lan.proto,dhcpClients,dhcpReady,dnsRunning,
         interfaces,clients:port_signature(clients),
         ports:port_signature(glob('/sys/class/net/br-lan/brif/*')),
         ipv6:trim(readfile('/proc/sys/net/ipv6/conf/br-lan/disable_ipv6')||''),
@@ -57,17 +59,18 @@ function runtime_matches(state,expected) {
             for(let key,value in wanted)if(found[key]!=value)return false;
         }
     }
-    return state.up&&!state.pending&&state.proto==expected.proto&&
+    return state.up&&!state.pending&&state.dnsRunning&&state.proto==expected.proto&&
         state.clients==expected.clients&&
         state.ports==expected.ports&&state.ipv6==expected.ipv6&&
         (expected.wanIPv6==null||state.wanIPv6==expected.wanIPv6);
 }
-let restored={up:true,pending:false,proto:'dhcp',ports:'eth0,eth1',ipv6:'0',clients:'',
+let restored={up:true,pending:false,dnsRunning:true,proto:'dhcp',ports:'eth0,eth1',ipv6:'0',clients:'',
     interfaces:{wan:null,wan6:null,wan_6:null,lan6:null}};
 let restoredExpected={...restored,interfaces:{wan:false,wan6:false,wan_6:false,lan6:false}};
 let dhcpRestored={...restored,dhcpReady:true,dhcpClients:[{device:'br-lan',hostname:'hostname:original'}]};
 let dhcpExpected={...restoredExpected,dhcpHostname:'hostname:original'};
 assert(runtime_matches(dhcpRestored,dhcpExpected),'restored DHCP client and resolver must be accepted');
+assert(!runtime_matches({...dhcpRestored,dnsRunning:false},dhcpExpected),'missing DNS service must fail despite valid interfaces and resolver files');
 for(let dhcpClients in [[],[...dhcpRestored.dhcpClients,...dhcpRestored.dhcpClients],
     [{device:'eth1',hostname:'hostname:original'}],[{device:'br-lan',hostname:'hostname:johnny-confirm-test'}]])
     assert(!runtime_matches({...dhcpRestored,dhcpClients},dhcpExpected),'old, missing, duplicate or wrong DHCP client must fail');
@@ -94,17 +97,29 @@ assert(length(originalDhcp)==1&&originalDhcp[0].device=='br-lan','original LAN D
 let originalHostname=originalDhcp[0].hostname;
 assert(originalHostname!='hostname:johnny-confirm-test','confirmation marker already exists');
 function wait_runtime(expected,label,seconds) {
+    function milliseconds() { let t=clock(true); return t[0]*1000+int(t[1]/1000000); }
+    let start=milliseconds(),deadline=start+seconds*1000;
     let stable=0;
     let previous;
-    for (let i=0;i<seconds*2;i++) {
+    while(milliseconds()<deadline) {
         let state=runtime_state(),encoded=sprintf('%J',state);
-        if(encoded!=previous)printf('NETWORK_RUNTIME %s elapsed=%.1f actual=%s expected=%J\n',label,i/2,encoded,expected);
+        if(encoded!=previous)printf('NETWORK_RUNTIME %s elapsed=%.1f actual=%s expected=%J\n',label,(milliseconds()-start)/1000,encoded,expected);
         previous=encoded;
         stable=runtime_matches(state,expected)?stable+1:0;
-        if(stable==2)return;
+        if(stable>=2) {
+            // Query the local server even for the PPPoE fixture without an ISP.
+            // Files and a live ujail alone cannot prove DNS is answering.
+            let ok=system('nslookup -timeout=1 -retry=1 -type=A localhost 127.0.0.1 > /tmp/johnny-network-dns.log 2>&1')==0;
+            if(ok&&milliseconds()<deadline) {
+                printf('NETWORK_DNS_PASS %s localhost via 127.0.0.1\n',label);
+                return;
+            }
+            printf('NETWORK_DNS_FAILURE %s %s\n',label,readfile('/tmp/johnny-network-dns.log'));
+            stable=0;
+        }
         sleep(500);
     }
-    assert(false,label+' runtime did not reach expected LAN, bridge ports and IPv6 within '+seconds+' seconds');
+    assert(false,label+' runtime did not reach expected network and working local DNS within '+seconds+' seconds');
 }
 function stage(plan) {
     for(let item in plan.deletes) {

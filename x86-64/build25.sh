@@ -47,6 +47,11 @@ else
 fi
 
 if [ "${CUSTOM_BYPASS:-0}" = "1" ]; then
+  # Rebuilt stable packages contain only the documented upstream signal fix.
+  for package in procd procd-ujail procd-seccomp; do
+    rm -f packages/"$package"-[0-9]*.apk
+    cp "johnny-procd/$package-2026.03.13~58eb263d-r2.apk" packages/
+  done
   # Use the author's 25.12 APK instead of the older bundled theme.
   # MeowX must come from its signed vendor feed, never a stale store APK.
   rm -f packages/meowx-*.apk packages/luci-app-meowx-*.apk packages/luci-i18n-meowx-*.apk

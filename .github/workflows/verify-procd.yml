@@ -1,0 +1,114 @@
+name: Verify procd fix on saved firmware
+on:
+  workflow_dispatch:
+  push:
+    branches: [release/26.11.10]
+    paths:
+      - .github/workflows/verify-procd.yml
+      - x86-64/preflight-procd.py
+      - x86-64/test-procd-negative.py
+      - x86-64/test-procd-startup.sh
+      - x86-64/test-network-apply.uc
+      - x86-64/smoke-test25.py
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    name: Verify saved firmware (${{ matrix.mode }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [boot, legacy, mesh]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run source and transport checks
+        if: matrix.mode == 'boot'
+        run: |
+          sh x86-64/test-ssh-qos.sh
+          sh x86-64/test-custom25.sh
+          sh x86-64/test-distfeeds.sh
+          node --test x86-64/test-update-ui.js x86-64/test-johnny-model.js x86-64/test-johnny-ui.js x86-64/test-johnny-connectivity.js x86-64/test-johnny-theme.js x86-64/test-johnny-theme-ui.js x86-64/test-meowx-dashboard.js
+          python3 x86-64/test-upgrade-readiness.py
+          python3 x86-64/test-retention-evidence.py
+          python3 x86-64/test-smoke-input.py
+          python3 x86-64/test-release-version.py
+          python3 x86-64/test-meowx-versions.py
+          node x86-64/preflight.js
+          sh -n x86-64/test-procd-startup.sh
+          python3 -m py_compile x86-64/preflight-procd.py x86-64/test-procd-negative.py
+      - name: Download compiled backport for the boot checks
+        if: matrix.mode == 'boot'
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 42703794962
+          name: procd-backport-c56f6d8ace96af2f2fede201f5ba88e146572bc2
+          path: procd-packages
+      - name: Download the exact failed original image and VM dependencies
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 42695299980 --repo Johnnnypro/JohnnyWrt --name firmware-diagnostics-15 --dir saved
+          mkdir -p verification/base
+          cp saved/bin/targets/x86/64/*squashfs-combined-efi.img.gz verification/base/firmware.img.gz
+          echo 'b5ef1af8cd23e99ad743580db3c1c050b554021fb7913c687a9a1975e3982cba  verification/base/firmware.img.gz' | sha256sum -c -
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf
+          python3 -m pip install paramiko==3.5.1
+      - name: Require old-package failure then verify the rebooted fix through full serial smoke
+        if: matrix.mode == 'boot'
+        env:
+          PROCD_TEST_BINARY: ${{ github.workspace }}/procd-packages/test-startup-signal
+        run: |
+          (cd procd-packages && sha256sum -c SHA256SUMS)
+          test "$(cat procd-packages/source-revision)" = c56f6d8ace96af2f2fede201f5ba88e146572bc2
+          cmp x86-64/procd-backport/100-johnny-ujail-startup-signals.patch procd-packages/100-johnny-ujail-startup-signals.patch
+          mkdir -p verification/negative verification/install verification/boot
+          cp verification/base/firmware.img.gz verification/negative/firmware.img.gz
+          python3 x86-64/test-procd-negative.py verification/negative/firmware.img.gz
+          cp verification/base/firmware.img.gz verification/install/firmware.img.gz
+          python3 x86-64/preflight-procd.py verification/install/firmware.img.gz procd-packages
+          cp verification/install/procd-installed.img.gz verification/boot/firmware.img.gz
+          python3 x86-64/smoke-test25.py verification/boot/firmware.img.gz
+          echo 'b5ef1af8cd23e99ad743580db3c1c050b554021fb7913c687a9a1975e3982cba  verification/base/firmware.img.gz' | sha256sum -c -
+      - name: Verify legacy to saved candidate to saved candidate retained settings
+        if: matrix.mode == 'legacy'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p verification/previous verification/upgrade
+          gh release download Johnnywrt-ISO-25.12.2-1793177592 --repo Johnnnnnnnyx/ImmortalWrt-ImageBuilder --pattern Johnnywrt-x86_64-squashfs-combined-efi.img.gz --dir verification/previous
+          echo 'aaf4f7cc25d026f5e24d38affdfcf589c6f1f50ac8883c88ffd48edef9df1956  verification/previous/Johnnywrt-x86_64-squashfs-combined-efi.img.gz' | sha256sum -c -
+          gzip -dc verification/previous/*.img.gz > verification/previous/base.img
+          cp verification/base/firmware.img.gz verification/upgrade/firmware.img.gz
+          python3 x86-64/test-sysupgrade.py verification/previous/base.img verification/upgrade/firmware.img.gz
+      - name: Verify installed Mesh survives latest to saved candidate to saved candidate
+        if: matrix.mode == 'mesh'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p verification/previous verification/upgrade
+          gh release download Johnnywrt-ISO-25.12.2-1793414110 --repo Johnnnypro/JohnnyWrt --pattern Johnnywrt-x86_64-squashfs-combined-efi.img.gz --dir verification/previous
+          echo 'f5bcd15b8677364ef84ae0c544bf0ff4f9c9c7645c1f723724239884d670eb58  verification/previous/Johnnywrt-x86_64-squashfs-combined-efi.img.gz' | sha256sum -c -
+          gzip -dc verification/previous/*.img.gz > verification/previous/base.img
+          cp verification/base/firmware.img.gz verification/upgrade/firmware.img.gz
+          python3 x86-64/test-sysupgrade.py verification/previous/base.img verification/upgrade/firmware.img.gz --with-meowx-mesh
+      - name: Save isolated verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: procd-verification-${{ matrix.mode }}-${{ github.run_id }}
+          path: |
+            verification/*/boot-test.log
+            verification/boot/smoke-failed.img.gz
+            verification/install/smoke-failed.img.gz
+            verification/upgrade/upgrade-test.log
+            verification/upgrade/upgrade-network-failure.log
+            verification/upgrade/upgrade-test-screen.ppm
+            verification/upgrade/upgrade-failed.img.gz
+            verification/upgrade/retention-*.json
+          if-no-files-found: ignore
+          retention-days: 7

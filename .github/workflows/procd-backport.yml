@@ -1,11 +1,11 @@
 name: Compile stable procd startup fix
 on:
   workflow_dispatch:
+  workflow_call:
   push:
     branches: [release/26.11.10]
     paths:
       - x86-64/procd-backport/**
-      - .github/workflows/procd-backport.yml
 permissions:
   contents: read
 jobs:

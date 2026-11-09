@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Boot the built EFI image and verify the installed bypass-router behavior."""
 import gzip
+import base64
 import hashlib
 import os
 from pathlib import Path
@@ -10,6 +11,7 @@ import shlex
 import subprocess
 import sys
 import time
+import textwrap
 
 image = Path(sys.argv[1])
 disk = image.parent / "smoke-test.img"
@@ -225,16 +227,28 @@ uname -r
 echo JOHNNY_BOOT_TEST_PASSED
 '''.strip()
 
+signal_probe = os.environ.get('PROCD_TEST_BINARY')
+if signal_probe:
+    checks = ('for package in procd procd-ujail procd-seccomp; do\n'
+              '    test "$(apk info -e -v "$package")" = "$package-2026.03.13~58eb263d-r2"\n'
+              'done\nsh /tmp/test-procd-startup.sh\n' + checks)
+
 plans = image.parent / 'network-test-plans.json'
 subprocess.run(['node', str(Path(__file__).with_name('network-test-plans.js')), str(plans)], check=True)
 inputs = [(name, Path(__file__).with_name(name)) for name in
-          ('test-ui-layout.sh', 'test-dashboard-api.sh', 'test-meow-actions.sh', 'test-network-apply.uc', 'test-johnny-probe.sh', 'test-johnny-probe.uc', 'test-quickstart.sh', 'test-johnny-nat-diagnostics.sh', 'test-subscription-refresh.sh', 'test-dashboard-defaults.sh')]
+          ('test-ui-layout.sh', 'test-dashboard-api.sh', 'test-meow-actions.sh', 'test-network-apply.uc', 'test-johnny-probe.sh', 'test-johnny-probe.uc', 'test-quickstart.sh', 'test-johnny-nat-diagnostics.sh', 'test-subscription-refresh.sh', 'test-dashboard-defaults.sh', 'test-procd-startup.sh')]
 inputs.append(('johnny-network-plans.json', plans))
 for name, source in inputs:
     content = source.read_text(encoding='utf-8').rstrip('\n') + '\n'
     digest = hashlib.sha256(content.encode()).hexdigest()
     checks = (f"cat > /tmp/{name} <<'JOHNNY_INPUT_EOF'\n{content}JOHNNY_INPUT_EOF\n"
               f"echo '{digest}  /tmp/{name}' | sha256sum -c -\n" + checks)
+if signal_probe:
+    data = Path(signal_probe).read_bytes()
+    encoded = '\n'.join(textwrap.wrap(base64.b64encode(data).decode(), 76))
+    checks = ("cat > /tmp/procd-probe.b64 <<'PROCD_EOF'\n" + encoded + "\nPROCD_EOF\n"
+              "ucode -e 'import {readfile,writefile} from \"fs\"; writefile(\"/tmp/test-startup-signal\", b64dec(replace(readfile(\"/tmp/procd-probe.b64\"), /\\s/g, \"\")));'\n"
+              f"echo '{hashlib.sha256(data).hexdigest()}  /tmp/test-startup-signal' | sha256sum -c -\n" + checks)
 if os.environ.get('RELEASE_VERSION'):
     version = shlex.quote(os.environ['RELEASE_VERSION'])
     checks = (f'test "$(cat /rom/etc/johnnywrt-version)" = {version}\n'

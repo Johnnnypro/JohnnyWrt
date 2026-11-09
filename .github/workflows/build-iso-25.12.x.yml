@@ -14,8 +14,6 @@ on:
         type: choice
         options:
           - 25.12.2
-          - 25.12.1
-          - 25.12.0
       profile:
         description: "软件包空间大小"
         required: true
@@ -46,13 +44,29 @@ permissions:
   actions: read
 
 jobs:
+  procd:
+    if: ${{ inputs.diagnostic_run_id == '' }}
+    uses: ./.github/workflows/procd-backport.yml
   build:
     if: ${{ inputs.diagnostic_run_id == '' }}
+    needs: procd
     runs-on: ubuntu-22.04
     timeout-minutes: 75
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+
+      - name: Download the matching stable procd packages
+        uses: actions/download-artifact@v4
+        with:
+          name: procd-backport-${{ github.sha }}
+          path: procd-packages
+
+      - name: Verify backport package integrity and source
+        run: |
+          (cd procd-packages && sha256sum -c SHA256SUMS)
+          test "$(cat procd-packages/source-revision)" = "${{ github.sha }}"
+          cmp x86-64/procd-backport/100-johnny-ujail-startup-signals.patch procd-packages/100-johnny-ujail-startup-signals.patch
 
       - name: Allocate release identifier
         env:
@@ -120,6 +134,7 @@ jobs:
             -v "$GITHUB_WORKSPACE/x86-64/imm25.config:/home/build/immortalwrt/.config" \
             -v "$GITHUB_WORKSPACE/shell:/home/build/immortalwrt/shell" \
             -v "$GITHUB_WORKSPACE/x86-64:/home/build/immortalwrt/custom25:ro" \
+            -v "$GITHUB_WORKSPACE/procd-packages:/home/build/immortalwrt/johnny-procd:ro" \
             -v "$GITHUB_WORKSPACE/x86-64/build25.sh:/home/build/immortalwrt/build.sh" \
             -e PROFILE="$ROOTFS_SIZE" \
             -e INCLUDE_DOCKER="$INCLUDE_DOCKER" \
@@ -136,6 +151,9 @@ jobs:
           manifest=$(find bin/targets/x86/64 -maxdepth 1 -name '*.manifest' -print -quit)
           test -n "$manifest"
           python3 x86-64/check-meowx-versions.py "$manifest"
+          for package in procd procd-ujail procd-seccomp; do
+            grep -Fx "$package - 2026.03.13~58eb263d-r2" "$manifest"
+          done
           for package in meowx-core meowx luci-app-meowx luci-i18n-meowx-zh-cn tailscale zerotier luci-app-zerotier luci-theme-aurora luci-mod-rpc luci-lib-ipkg luci-compat libuci-lua ucode-mod-socket ip-full; do
             grep -E "^${package} - " "$manifest" || exit 1
           done
@@ -143,6 +161,8 @@ jobs:
           grep '^kernel - ' "$manifest"
 
       - name: Boot firmware and test defaults
+        env:
+          PROCD_TEST_BINARY: ${{ github.workspace }}/procd-packages/test-startup-signal
         run: |
           image=$(find bin/targets/x86/64 -maxdepth 1 -name '*squashfs-combined-efi.img.gz' -print -quit)
           test -n "$image"
@@ -256,6 +276,7 @@ jobs:
           - 首页移除 ZeroTier 卡片，左侧保留完整 MeowX，右侧排列网络流量与接口；ZeroTier 服务、身份、配置与菜单保留。
           - 内置 MeowX 组网需要的 Tailscale，避免保留配置升级后只有身份文件却缺少程序。最新 #14 安装当前组网依赖后，已验证两轮升级保留本机测试身份和原生服务；不代表真实主控授权或两地连接已经验证。
           - 网络向导新增 IPv6 开关：主路由获取 WAN IPv6 并向 LAN 分配；旁路由仅为本机获取上级地址。同模式下未切换开关保留现有设置；主／旁路由角色切换时按当前开关状态生成预览，应用支持自动回滚。
+          - 稳定 procd 58eb263d 移植上游启动信号修复，三包版本为2026.03.13~58eb263d-r2，避免DNS隔离进程刚启动即被重载信号杀死；保留jail与IPv6。已验证精确启动时刻的HUP/停止请求、正常重载及15场景应用/回滚后的实际本机DNS应答。
           - 当前稳定系统存在特殊网口转换限制：自定义物理网口已设置 IPv6=0 且仍在 LAN 桥内时，向导不允许将它改为 WAN 并保持 IPv6 关闭，会在写入前提示使用高级网络设置。普通网口与现有 WAN 的 IPv6 开关不受此限制；真实运营商 DHCPv6/PD、PPPoE 协商需部署后验证。
           - 对外版本采用日期编号；内部标签和 firmware.json.version 保持旧更新器兼容格式，底层仍为 ImmortalWrt $VERSION。固定升级文件名及 32/1024 MiB 分区布局不变。
           - 首页订阅栏改为紧凑自适应布局，普通名称保留适当宽度，长名称省略显示并可从下拉列表查看完整名称；更新订阅按钮缩小并显示文字。修正服务开关圆点越界，不新增 MeowX 更新红点或首页版本检查。
