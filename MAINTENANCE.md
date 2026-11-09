@@ -489,3 +489,4 @@
 - 专项42716459879（4abdb9f）完成两轮原始镜像升级，第二轮464秒就绪，所有服务和保留检查通过；ZIP SHA256 2d6f23c749d6ba4b613a272867fd9081d16d25717e2cb9de204c567dd26c814b已核对，四份前后快照再次与唯一baseline的10文件/387字段/9账号重放通过。仍捕获316.74秒的引导前停顿，不能据此声称间歇超时已经修复。
 - 停顿中CPU0保持32位保护模式、EIP=0301d01e、DF=1，ECX缓慢递减，ESI-ECX=000fffff、EDI-ECX=00ffffff；与GRUB 2.12 relocator_asm.S从1MiB向16MiB反向复制的rep movsb（代码偏移1e）逐指令吻合，尚未进入Linux。CPU0持续运行、宿主PSI无明显竞争；这排除了该段由Linux PIT校准引起，但没有证明QEMU内部慢路径的具体机制。
 - 下一专项在同一Ubuntu22.04/QEMU6.2宿主顺序比较TCG与KVM，独立初始磁盘、固定镜像和测试SHA、相同CPU型号/2核/1GiB/BIOS/网卡及600秒门禁。只增加只读指令字节和query-kvm采样，硬性验证KVM实际启用，不自动回退；各自执行原两次升级，分别保留结果，任一失败仍让整轮失败。35分钟总预算用于两套顺序检查，不延长单项等待。不修改产品GRUB、内核或真实设备。
+- 同时在只读verify-procd预检中验证KVM的完整legacy与#14+Mesh升级链；仍用原test-sysupgrade.py入口，显式--accel kvm且没有fallback，原始baseline/600秒/两轮升级及全部断言不变。UEFI完整功能与确定性procd信号对照继续沿用已验证TCG入口。该预检用于确认新测试环境，不代表已经采用或修复QEMU内部问题；正式构建尚未启动。

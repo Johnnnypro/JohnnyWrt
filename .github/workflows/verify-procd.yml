@@ -60,6 +60,13 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf
           python3 -m pip install paramiko==3.5.1
+      - name: Require hardware virtualization for both upgrade chains
+        if: matrix.mode != 'boot'
+        run: |
+          test -c /dev/kvm
+          sudo apt-get install -y --no-install-recommends acl
+          sudo setfacl -m "u:$(id -un):rw" /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
       - name: Require old-package failure then verify the rebooted fix through full serial smoke
         if: matrix.mode == 'boot'
         env:
@@ -86,7 +93,7 @@ jobs:
           echo 'aaf4f7cc25d026f5e24d38affdfcf589c6f1f50ac8883c88ffd48edef9df1956  verification/previous/Johnnywrt-x86_64-squashfs-combined-efi.img.gz' | sha256sum -c -
           gzip -dc verification/previous/*.img.gz > verification/previous/base.img
           cp verification/base/firmware.img.gz verification/upgrade/firmware.img.gz
-          python3 x86-64/test-sysupgrade.py verification/previous/base.img verification/upgrade/firmware.img.gz
+          python3 x86-64/test-sysupgrade.py verification/previous/base.img verification/upgrade/firmware.img.gz --accel kvm
       - name: Verify installed Mesh survives latest to saved candidate to saved candidate
         if: matrix.mode == 'mesh'
         env:
@@ -97,7 +104,7 @@ jobs:
           echo 'f5bcd15b8677364ef84ae0c544bf0ff4f9c9c7645c1f723724239884d670eb58  verification/previous/Johnnywrt-x86_64-squashfs-combined-efi.img.gz' | sha256sum -c -
           gzip -dc verification/previous/*.img.gz > verification/previous/base.img
           cp verification/base/firmware.img.gz verification/upgrade/firmware.img.gz
-          python3 x86-64/test-sysupgrade.py verification/previous/base.img verification/upgrade/firmware.img.gz --with-meowx-mesh
+          python3 x86-64/test-sysupgrade.py verification/previous/base.img verification/upgrade/firmware.img.gz --with-meowx-mesh --accel kvm
       - name: Save isolated verification evidence
         if: always()
         uses: actions/upload-artifact@v4
