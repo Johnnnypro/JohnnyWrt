@@ -21,20 +21,26 @@ assert(port_signature(['eth1','eth0'])=='eth0,eth1','bridge comparison must prod
 assert(port_signature(['eth0'])!=port_signature(['eth0','eth1']),'partial bridge must not equal restored bridge');
 function runtime_state() {
     let lan=rpc('network.interface.lan','status',{});
+    let interfaces=rpc('network.interface','dump',{}).interface;
     return {up:lan.up,pending:lan.pending,proto:lan.proto,
+        wanPresent:length(filter(interfaces,i=>i.interface=='wan'||i.interface=='wan6'||i.interface=='wan_6'))>0,
         ports:port_signature(glob('/sys/class/net/br-lan/brif/*')),
         ipv6:trim(readfile('/proc/sys/net/ipv6/conf/br-lan/disable_ipv6')||''),
         wanIPv6:trim(readfile('/proc/sys/net/ipv6/conf/eth1/disable_ipv6')||'')};
 }
 function runtime_matches(state,expected) {
     return state.up&&!state.pending&&state.proto==expected.proto&&
+        state.wanPresent==expected.wanPresent&&
         state.ports==expected.ports&&state.ipv6==expected.ipv6&&
         (expected.wanIPv6==null||state.wanIPv6==expected.wanIPv6);
 }
+let restored={up:true,pending:false,proto:'dhcp',ports:'eth0,eth1',ipv6:'0',wanPresent:false};
+assert(!runtime_matches({...restored,wanPresent:true},restored),'rollback must reject a leftover WAN interface');
+assert(!runtime_matches({...restored,wanPresent:true,wanIPv6:'0'},
+    {...restored,wanPresent:true,wanIPv6:'1'}),'active WAN must obey its explicit IPv6 setting');
 let baseline={proto:u.get('network','lan','proto'),
     ports:port_signature(map(u.get('network',names.fixture_bridge,'ports'),p=>'/sys/class/net/br-lan/brif/'+p)),
-    ipv6:trim(readfile('/proc/sys/net/ipv6/conf/br-lan/disable_ipv6')),
-    wanIPv6:'1'};
+    ipv6:trim(readfile('/proc/sys/net/ipv6/conf/br-lan/disable_ipv6')),wanPresent:false};
 assert(type(baseline.ports)=='string'&&length(baseline.ports)>0,'baseline bridge ports are unavailable');
 function wait_runtime(expected,label,seconds) {
     let stable=0;
@@ -67,9 +73,9 @@ function stage(plan) {
 }
 let failure;
 try {
-    // Give WAN a persisted IPv6 setting: an implicit bridge-member flag can
-    // change when netifd releases/reclaims the device during role changes.
-    // This also tests that explicit enable overrides a pre-existing disable.
+    // Test explicit enable overriding a pre-existing physical-device disable.
+    // After rollback eth1 is a bridge member, not a WAN L3 interface: require
+    // WAN/WAN6 removal and restored br-lan IPv6, not a derived member flag.
     assert(!u.get('network','fixture_wan_device'),'unexpected fixture device already exists');
     u.set('network','fixture_wan_device','device');
     u.set('network','fixture_wan_device','name','eth1');
@@ -84,7 +90,7 @@ try {
         stage(plan);
         call('apply',{rollback:true,timeout:20});
         let bridge=filter(plan.updates,item=>item.config=='network'&&item.section=='fixture_bridge')[0];
-        let expected={proto:plan.role=='main'?'static':plan.protocol,
+        let expected={proto:plan.role=='main'?'static':plan.protocol,wanPresent:plan.role=='main',
             ports:port_signature(map(bridge.values.ports,p=>'/sys/class/net/br-lan/brif/'+p)),
             ipv6:type(plan.ipv6)=='bool'?(plan.ipv6?'0':'1'):baseline.ipv6};
         if(plan.role=='main'&&type(plan.ipv6)=='bool')expected.wanIPv6=expected.ipv6;

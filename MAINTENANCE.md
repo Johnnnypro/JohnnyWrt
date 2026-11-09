@@ -352,3 +352,10 @@
 - 比较正式源码 eb2f3e7 与本次模型，失败场景的 updates/deletes 完全一致。核对 netifd 上游 bridge_enable_member/bridge_disable_member 与 system_if_clear_state：桥成员的未配置 IPv6 标记由设备生命周期管理，不应当作已保存用户设置。此发现不授权修改基础 netifd，也不能跳过显式 WAN IPv6 的验证。
 - 调整一次性测试前置条件：在第一次 baseline 之前，为 eth1 创建明确 ipv6=0 的 fixture_wan_device，经 network.reload 和运行时就绪验证后记录唯一 baseline；15 场景均严格核对这个持久化状态的回滚，开启场景仍必须实测覆盖为 ipv6=1。保留原文件另用于测试结束后的清理，不刷新测试 baseline。原来的 WAN/LAN 内核、桥端口、协议和文件字节断言全部保留。
 - 完整 ucode 编译检查和串口传输 8 项通过；需继续完整原镜像验证，不能将 6 个通过场景等同于全套通过。
+
+### 26.11.10 只读诊断 #6（42658655786）
+
+- 六个旁路由场景再次全部通过；即使 eth1 有明确 device.ipv6=0，主路由回滚后桥成员内核标记仍为 0，因同一物理端口断言失败。ZIP SHA256 `d8f976d94379b9e121c5c09b505ca75a6061cf0a968ab09d8805d7c12099a54b`。这否定了 #5“只需固定物理端口配置就能维持该运行时标记”的假设。
+- 精确文件比较已通过，最终接口 dump 为 lan/loopback/zerotier，无 WAN/WAN6；LAN 为 DHCP、br-lan 恢复 eth0+eth1 和原 IPv6 状态。验收必须区分三层 WAN 与已回归桥的物理成员。不能将该物理成员的暂态标记当作仍在运行的 WAN。
+- 运行时检查现增加 WAN/WAN6/WAN_6 接口存在性：主路由应用必须出现 WAN，旁路由与回滚必须不存在这些接口；完整 LAN 协议、up/pending、桥端口和 br-lan IPv6 检查不变。实际作为 WAN 时的 eth1 IPv6 开关仍强制检查。取消的是“没有 WAN 时仍要求 WAN 内核标记”的错误断言，未改变产品逻辑、配置字节检查、自动回滚要求或发布门禁。
+- 新增检查器回归：残留 WAN 必须失败、真实 WAN 不服从显式 IPv6 设置必须失败；实际解释器验证 8 种不完整状态被拒绝，完整脚本仅编译通过，串口输入 8 项通过。较长 SSH 命令遇到 EOF 后改用 Termark 临时上传并编译，随后删除；实机 boot_id 与开始时相同，未执行网络测试或重启。
