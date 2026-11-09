@@ -66,8 +66,8 @@ johnny_nat_diagnostics_dump() {
         johnny_connectivity_snapshot failure
         {
             for host in downloads.immortalwrt.org dl.miaomiaowux.com; do
-                timeout 8 nslookup -type=A "$host" || true
-                timeout 8 nslookup -type=AAAA "$host" || true
+                nslookup -timeout=4 -retry=1 -type=A "$host" || true
+                nslookup -timeout=4 -retry=1 -type=AAAA "$host" || true
             done
             curl -4 -v --connect-timeout 5 --max-time 10 https://downloads.immortalwrt.org/releases/25.12.2/targets/x86/64/packages/packages.adb -o /dev/null || true
         } > /tmp/johnny-nat-diagnostics/connectivity-probes.log 2>&1

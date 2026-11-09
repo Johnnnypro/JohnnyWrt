@@ -13,6 +13,15 @@ root = Path(__file__).parent
 
 
 class SmokeInputTest(unittest.TestCase):
+    def test_dns_evidence_works_without_an_external_timeout_applet(self):
+        source = (root / 'test-johnny-nat-diagnostics.sh').read_text()
+        probe = re.search(r'for host in downloads\.immortalwrt\.org .*?\n            done', source, re.S).group(0)
+        script = 'timeout() { return 127; }; nslookup() { echo LOOKUP "$@"; };\n' + probe
+        result = subprocess.run(['sh', '-c', script], capture_output=True, text=True)
+        self.assertEqual(result.stdout.count('LOOKUP'), 4, result.stderr)
+        for line in result.stdout.splitlines():
+            self.assertIn('-timeout=4 -retry=1', line)
+
     def test_connectivity_evidence_cannot_replace_test_status_when_tools_fail(self):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)

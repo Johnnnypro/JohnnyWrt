@@ -25,7 +25,9 @@ class ReadinessTest(unittest.TestCase):
             namespace['capture_failure_network'](client)
             self.assertEqual((Path(directory) / 'upgrade-network-failure.log').read_text(), 'partial network evidence')
             command = client.exec_command.call_args.args[0]
-            self.assertIn('timeout 40 sh', command)
+            self.assertNotIn('timeout 40 sh', command, 'The firmware has no timeout applet')
+            self.assertIn('ubus -t 3 call', command)
+            self.assertIn('nslookup -timeout=4 -retry=1', command)
             self.assertNotIn('apk update', command)
             self.assertEqual(client.exec_command.call_args.kwargs['timeout'], 45)
             original = RuntimeError('original upgrade failure')

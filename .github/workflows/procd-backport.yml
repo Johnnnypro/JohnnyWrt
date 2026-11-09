@@ -1,0 +1,33 @@
+name: Compile stable procd startup fix
+on:
+  workflow_dispatch:
+  push:
+    branches: [release/26.11.10]
+    paths:
+      - x86-64/procd-backport/**
+      - .github/workflows/procd-backport.yml
+permissions:
+  contents: read
+jobs:
+  compile:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install SDK host dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends build-essential clang flex bison g++ gawk \
+            gcc-multilib gettext git libncurses-dev libssl-dev python3-setuptools \
+            rsync swig unzip zlib1g-dev file wget zstd
+      - name: Compile stable packages and the disposable VM signal probe
+        run: |
+          mkdir sdk-work procd-packages
+          bash x86-64/procd-backport/build.sh sdk-work procd-packages
+      - name: Save packages for isolated verification
+        uses: actions/upload-artifact@v4
+        with:
+          name: procd-backport-${{ github.sha }}
+          path: procd-packages/
+          if-no-files-found: error
+          retention-days: 7

@@ -78,18 +78,18 @@ def capture_failure_network(client):
         transport = client.get_transport() if client is not None else None
         if transport is None or not transport.is_active():
             return
-        _, out, err = client.exec_command("""timeout 40 sh <<'DIAGNOSTIC' 2>&1
+        _, out, err = client.exec_command("""sh <<'DIAGNOSTIC' 2>&1
 date -u
 ip -4 addr; ip -6 addr
 ip -4 rule; ip -6 rule
 ip -4 route show table all; ip -6 route show table all
-timeout 3 ubus call network.interface dump
+ubus -t 3 call network.interface dump
 cat /etc/resolv.conf /tmp/resolv.conf.d/resolv.conf.auto
 nft list ruleset
 logread -l 100 | grep -E 'netifd|dnsmasq|udhcpc|odhcp6c'
 for host in downloads.immortalwrt.org dl.miaomiaowux.com; do
-    timeout 4 nslookup -type=A "$host"
-    timeout 4 nslookup -type=AAAA "$host"
+    nslookup -timeout=4 -retry=1 -type=A "$host"
+    nslookup -timeout=4 -retry=1 -type=AAAA "$host"
 done
 for family in 4 6; do
     curl -"$family" -v --connect-timeout 3 --max-time 7 https://downloads.immortalwrt.org/releases/25.12.2/targets/x86/64/packages/packages.adb -o /dev/null

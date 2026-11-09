@@ -1,0 +1,202 @@
+Backport the upstream ujail startup signal fixes to stable procd 58eb263d.
+
+Upstream commits:
+e2010df98d5ef93f0046f3f78bec0982dfdfbb6d (reset child handlers)
+511952252e0b41895d011891f1304aa12c978b60 (block signals across fork)
+4734b86daa33d45996f22487a7aef7632f7bbf33 (keep signals pending across exec)
+33f270f91b0ceb7937bf1f1bc1a4b0cd0eb65c6f (retry interrupted pipe reads)
+237ae2b81283e7ed88063dd4c682192fac0a4684 (only stop flag and signal handler)
+c0036f7e4cfef71c828b90eb9eb8997f8e91b71b (honor early stop requests)
+
+The last commit uses kill() for the unreaped direct child on this stable
+base, which predates its pidfd helper. No container auto-restart changes.
+Upstream repository: https://github.com/openwrt/procd
+
+diff --git a/jail/jail.c b/jail/jail.c
+index 2326ce7..efd6820 100644
+--- a/jail/jail.c
++++ b/jail/jail.c
+@@ -1093,6 +1093,7 @@ static int setns_open(unsigned long nstype)
+ 
+ static int jail_running = 0;
+ static int jail_return_code = 0;
++static volatile sig_atomic_t jail_stop_requested;
+ 
+ static void jail_process_timeout_cb(struct uloop_timeout *t);
+ static struct uloop_timeout jail_process_timeout = {
+@@ -1125,6 +1126,9 @@ static void jail_process_timeout_cb(struct uloop_timeout *t)
+ 
+ static void jail_handle_signal(int signo)
+ {
++	if (signo == SIGTERM)
++		jail_stop_requested = true;
++
+ 	if (hook_running) {
+ 		DEBUG("forwarding signal %d to the hook process\n", signo);
+ 		kill(hook_process.pid, signo);
+@@ -1159,6 +1163,8 @@ static void signals_init(void)
+ 		s.sa_handler = jail_handle_signal;
+ 		sigaction(i, &s, NULL);
+ 	}
++
++	sigprocmask(SIG_UNBLOCK, &sigmask, NULL);
+ }
+ 
+ static void pre_exec_jail(struct uloop_timeout *t);
+@@ -1170,6 +1176,7 @@ int pipes[4];
+ static int exec_jail(void *arg)
+ {
+ 	char buf[1];
++	ssize_t n;
+ 
+ 	exit_from_child = true;
+ 	prctl(PR_SET_SECUREBITS, 0);
+@@ -1192,7 +1199,10 @@ static int exec_jail(void *arg)
+ 		return EXIT_FAILURE;
+ 	}
+ 	close(pipes[1]);
+-	if (read(pipes[2], buf, 1) < 1) {
++	do {
++		n = read(pipes[2], buf, 1);
++	} while (n < 0 && errno == EINTR);
++	if (n < 1) {
+ 		ERROR("can't read from parent\n");
+ 		return EXIT_FAILURE;
+ 	}
+@@ -1248,8 +1258,15 @@ static void post_start_hook(void);
+ static void post_jail_fs(void)
+ {
+ 	char buf[1];
++	ssize_t n;
+ 
+-	if (read(pipes[2], buf, 1) < 1) {
++	do {
++		if (jail_stop_requested)
++			free_and_exit(128 + SIGTERM);
++
++		n = read(pipes[2], buf, 1);
++	} while (n < 0 && errno == EINTR);
++	if (n < 1) {
+ 		ERROR("can't read from parent\n");
+ 		free_and_exit(EXIT_FAILURE);
+ 	}
+@@ -3060,6 +3077,16 @@ static void post_main(struct uloop_timeout *t)
+ 
+ 		prctl(PR_SET_SECUREBITS, 0);
+ 
++		if (jail_stop_requested) {
++			INFO("stop requested before the jail was started\n");
++			kill(jail_process.pid, SIGKILL);
++			while (waitpid(jail_process.pid, NULL, 0) < 0 &&
++			       errno == EINTR);
++			uloop_process_delete(&jail_process);
++			jail_running = 0;
++			free_and_exit(128 + SIGTERM);
++		}
++
+ 		if (pidns_fd != -1) {
+ 			setns(pidns_fd, CLONE_NEWPID);
+ 			close(pidns_fd);
+diff --git a/procd.h b/procd.h
+index 55efc82..404b51c 100644
+--- a/procd.h
++++ b/procd.h
+@@ -51,6 +51,9 @@ void procd_shutdown(int event);
+ void procd_early(void);
+ void procd_preinit(void);
+ void procd_signal(void);
++void procd_signal_reset(void);
++void procd_signal_block(sigset_t *oldset);
++void procd_signal_restore(const sigset_t *oldset);
+ void procd_signal_preinit(void);
+ void procd_inittab(void);
+ void procd_inittab_run(const char *action);
+diff --git a/service/instance.c b/service/instance.c
+index 51d85b0..73a3efd 100644
+--- a/service/instance.c
++++ b/service/instance.c
+@@ -625,9 +625,10 @@ instance_free_stdio(struct service_instance *in)
+ void
+ instance_start(struct service_instance *in)
+ {
+-	int pid, ret;
+ 	int opipe[2] = { -1, -1 };
+ 	int epipe[2] = { -1, -1 };
++	sigset_t oldset;
++	int pid, ret;
+ 
+ 	if (!avl_is_empty(&in->errors.avl)) {
+ 		LOG("Not starting instance %s::%s, an error was indicated\n", in->srv->name, in->name);
+@@ -666,11 +667,23 @@ instance_start(struct service_instance *in)
+ 	if (!in->valid)
+ 		return;
+ 
++	procd_signal_block(&oldset);
++
+ 	pid = fork();
+-	if (pid < 0)
++	if (pid < 0) {
++		procd_signal_restore(&oldset);
+ 		return;
++	}
+ 
+ 	if (!pid) {
++		procd_signal_reset();
++		/*
++		 * A signal sent to a starting instance, e.g. the reload SIGHUP,
++		 * would kill ujail before it installs its handlers. Keep the
++		 * signals pending; ujail unblocks them once it can forward them.
++		 */
++		if (!in->has_jail)
++			procd_signal_restore(&oldset);
+ 		uloop_done();
+ 		closefd(opipe[0]);
+ 		closefd(epipe[0]);
+@@ -683,6 +696,8 @@ instance_start(struct service_instance *in)
+ 		return;
+ 	}
+ 
++	procd_signal_restore(&oldset);
++
+ 	P_DEBUG(2, "Started instance %s::%s[%d]\n", in->srv->name, in->name, pid);
+ 	in->proc.pid = pid;
+ 	instance_writepid(in);
+diff --git a/signal.c b/signal.c
+index 7cbbe1a..79d0596 100644
+--- a/signal.c
++++ b/signal.c
+@@ -104,3 +104,34 @@ void procd_signal(void)
+ 	reboot(RB_DISABLE_CAD);
+ #endif
+ }
++
++void procd_signal_reset(void)
++{
++	struct sigaction s = { 0 };
++	int i;
++
++	s.sa_handler = SIG_DFL;
++
++	for (i = 1; i < _NSIG; i++)
++		sigaction(i, &s, NULL);
++}
++
++void procd_signal_block(sigset_t *oldset)
++{
++	sigset_t set;
++
++	sigemptyset(&set);
++	sigaddset(&set, SIGTERM);
++	sigaddset(&set, SIGINT);
++	sigaddset(&set, SIGUSR1);
++	sigaddset(&set, SIGUSR2);
++	sigaddset(&set, SIGPWR);
++	sigaddset(&set, SIGHUP);
++
++	sigprocmask(SIG_BLOCK, &set, oldset);
++}
++
++void procd_signal_restore(const sigset_t *oldset)
++{
++	sigprocmask(SIG_SETMASK, oldset, NULL);
++}
