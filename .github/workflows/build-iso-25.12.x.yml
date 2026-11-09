@@ -231,18 +231,21 @@ jobs:
             bin/targets/x86/64/smoke-failed.img.gz
             bin/targets/x86/64/upgrade-test.log
             bin/targets/x86/64/upgrade-network-failure.log
+            bin/targets/x86/64/upgrade-network.pcap
             bin/targets/x86/64/upgrade-test-screen.ppm
             bin/targets/x86/64/upgrade-failed.img.gz
             bin/targets/x86/64/profiles.json
             bin/targets/x86/64/retention-*.json
             latest-upgrade/upgrade-test.log
             latest-upgrade/upgrade-network-failure.log
+            latest-upgrade/upgrade-network.pcap
             latest-upgrade/upgrade-test-screen.ppm
             latest-upgrade/retention-*.json
             latest-upgrade/upgrade-failed.img.gz
             iso-boot-catalog.txt
             previous-release/upgrade-test.log
             previous-release/upgrade-network-failure.log
+            previous-release/upgrade-network.pcap
             previous-release/upgrade-test-screen.ppm
             previous-release/upgrade-failed.img.gz
           if-no-files-found: ignore

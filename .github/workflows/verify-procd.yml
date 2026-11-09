@@ -10,6 +10,8 @@ on:
       - x86-64/test-procd-startup.sh
       - x86-64/test-network-apply.uc
       - x86-64/smoke-test25.py
+      - x86-64/test-sysupgrade.py
+      - x86-64/test-upgrade-readiness.py
 permissions:
   contents: read
   actions: read
@@ -107,6 +109,7 @@ jobs:
             verification/install/smoke-failed.img.gz
             verification/upgrade/upgrade-test.log
             verification/upgrade/upgrade-network-failure.log
+            verification/upgrade/upgrade-network.pcap
             verification/upgrade/upgrade-test-screen.ppm
             verification/upgrade/upgrade-failed.img.gz
             verification/upgrade/retention-*.json

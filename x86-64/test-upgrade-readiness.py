@@ -1,6 +1,7 @@
 """A successful SSH login alone must not permit rebooting an unready overlay."""
 import ast
 import io
+import json
 from pathlib import Path
 import tempfile
 import types
@@ -58,7 +59,7 @@ class ReadinessTest(unittest.TestCase):
         self.assertFalse(eval(check, {'activated': True, 'output': b'Please press Enter'}))
         self.assertFalse(eval(check, {'activated': False, 'output': b'root@JohnnyWrt:~# '}))
 
-    def run_wait(self, states, previous_boot=None, ready_after=0, ports=None, pending=None, quickstart=True, lan_up=None):
+    def run_wait(self, states, previous_boot=None, ready_after=0, ports=None, pending=None, quickstart=True, lan_up=None, network=None):
         clock = Mock()
         elapsed = [0]
         clock.monotonic.side_effect = lambda: elapsed[0]
@@ -76,15 +77,27 @@ class ReadinessTest(unittest.TestCase):
         def run(client, command, sensitive=False):
             commands.append(command)
             index = min(len(connected) - 1, len(states) - 1)
+            status = {'up': True, 'pending': False, 'ipv4-address': [{'address': '10.0.2.15', 'mask': 24}],
+                      'route': [{'target': '0.0.0.0', 'mask': 0, 'nexthop': '10.0.2.2'}], 'dns-server': ['10.0.2.3']}
+            sample = network[index] if network else {}
+            status.update(sample.get('lan', {}))
+            if lan_up:
+                status['up'] = lan_up[index] == 'true'
+            if command.startswith('nslookup '):
+                if not sample.get('answer', True):
+                    raise RuntimeError('Local DNS did not answer')
+                return ''
             return {'cat /proc/sys/kernel/random/boot_id': 'new-boot',
                     'readlink /overlay/.fs_state': client.state,
                     'uci -q get network.@device[0].ports': ports[index] if ports else 'eth0 dheth0',
                     'uci changes network': pending[index] if pending else '',
                     'test ! -x /usr/sbin/quickstart || echo present': 'present' if quickstart else '',
-                    "ubus call network.interface.lan status | jsonfilter -e '@.up'": lan_up[index] if lan_up else 'true',
+                    'ubus -t 3 call network.interface.lan status': json.dumps(status),
+                    'ubus -t 3 call service list \'{"name":"dnsmasq"}\'': json.dumps({'dnsmasq': {'instances': sample.get('instances', {'dns': {'running': True}})}}),
+                    "awk '/^nameserver / {print $2}' /tmp/resolv.conf.d/resolv.conf.auto": sample.get('resolvers', '10.0.2.3'),
                     'sync': ''}[command]
 
-        namespace = dict(time=clock, paramiko=types.SimpleNamespace(SSHException=ConnectionError),
+        namespace = dict(time=clock, json=json, paramiko=types.SimpleNamespace(SSHException=ConnectionError),
                          qemu=Mock(poll=lambda: None), connect=connect, run=run, print=Mock())
         exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), namespace)
         result = namespace['wait_ssh'](previous_boot)
@@ -129,6 +142,20 @@ class ReadinessTest(unittest.TestCase):
         _, connected, commands = self.run_wait(['2'], 'old-boot', ready_after=300)
         self.assertEqual(len(connected), 1)
         self.assertEqual(commands[-1], 'sync')
+
+    def test_lan_up_does_not_accept_incomplete_address_route_or_dns(self):
+        incomplete = [{'lan': {'pending': True}}, {'lan': {'ipv4-address': []}}, {'lan': {'route': []}},
+                      {'lan': {'dns-server': []}}, {'resolvers': '10.0.2.99'}, {'instances': {}},
+                      {'instances': {'dns': {'running': False}}}, {'answer': False}]
+        for sample in incomplete:
+            with self.subTest(sample=sample):
+                _, connected, commands = self.run_wait(['2', '2'], quickstart=False, network=[sample, {}])
+                self.assertEqual(len(connected), 2)
+                self.assertTrue(any(command.startswith('nslookup ') for command in commands))
+
+    def test_dns_that_never_answers_is_not_ready(self):
+        with self.assertRaises(RuntimeError):
+            self.run_wait(['2'], quickstart=False, network=[{'answer': False}])
 
 
 if __name__ == '__main__':

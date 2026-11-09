@@ -43,6 +43,7 @@ qemu = subprocess.Popen([
     # Match deployed i440FX/BIOS machines; smoke-test25 covers q35/UEFI.
     '-drive', f'file={disk},format=raw,if=virtio',
     '-netdev', 'user,id=lan,hostfwd=tcp:127.0.0.1:22222-:22',
+    '-object', f'filter-dump,id=upgrade-network,netdev=lan,maxlen=512,file={image.parent / "upgrade-network.pcap"}',
     '-device', 'virtio-net-pci,netdev=lan', '-display', 'none',
     '-serial', 'stdio', '-monitor', 'none',
     '-qmp', f'unix:{monitor_path},server=on,wait=off'],
@@ -118,14 +119,26 @@ def wait_ssh(previous_boot=None):
             ports = run(client, 'uci -q get network.@device[0].ports').split()
             pending = run(client, 'uci changes network', sensitive=True).strip()
             quickstart = bool(run(client, 'test ! -x /usr/sbin/quickstart || echo present').strip())
-            lan_up = run(client, "ubus call network.interface.lan status | jsonfilter -e '@.up'").strip() == 'true'
-            network_ready = lan_up and not pending and (not quickstart or 'dheth0' in ports)
+            lan = json.loads(run(client, 'ubus -t 3 call network.interface.lan status'))
+            dns = json.loads(run(client, 'ubus -t 3 call service list \'{"name":"dnsmasq"}\''))
+            instances = dns.get('dnsmasq', {}).get('instances', {})
+            resolvers = run(client, "awk '/^nameserver / {print $2}' /tmp/resolv.conf.d/resolv.conf.auto").split()
+            # These disposable upgrade fixtures use DHCP LAN for Internet access.
+            network_ready = (lan.get('up') is True and lan.get('pending') is False
+                             and bool(lan.get('ipv4-address'))
+                             and any(route.get('target') == '0.0.0.0' and route.get('mask') == 0
+                                     and route.get('nexthop') for route in lan.get('route', []))
+                             and bool(lan.get('dns-server')) and set(lan['dns-server']).issubset(resolvers)
+                             and bool(instances) and all(instance.get('running') is True for instance in instances.values())
+                             and not pending and (not quickstart or 'dheth0' in ports))
             last_status = f'boot changed={boot != previous_boot}, overlay state={state}, network ready={network_ready}'
             # S95done marks FS_STATE_READY=2 after initial filesystem setup.
             # Rebooting earlier lets fstools clear the pending overlay next boot.
             # QuickStart commits its DHCP helper bridge port after overlay setup.
             # The old fixture needs this guard; new firmware has no QuickStart.
             if (previous_boot is None or boot != previous_boot) and state == '2' and network_ready:
+                # Exercise the local listener without warming a public download name.
+                run(client, 'nslookup -timeout=1 -retry=1 -type=A localhost 127.0.0.1 >/dev/null')
                 run(client, 'sync')
                 print(f'PASS: SSH, overlay and network ready after {time.monotonic() - started:.0f}s', flush=True)
                 return client
