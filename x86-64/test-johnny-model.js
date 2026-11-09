@@ -170,3 +170,26 @@ test('changing bypass to main removes the wizard LAN DHCPv6 client and stale fir
     assert(p.deletes.some(x=>x.section==='lan6'));
     assert.deepEqual(value(p,'firewall','johnny_lan').network,['lan']);
 });
+
+test('unrelated same-role edits retain LAN IPv6 client and its firewall membership',()=>{
+    const e={...env,role:'main',interfaces:[...env.interfaces,'lan6']};
+    const p=model.networkPlan(mainIPv6,e);
+    assert(!p.deletes.some(x=>x.section==='lan6'));
+    assert.deepEqual(value(p,'firewall','johnny_lan').network,['lan','lan6']);
+});
+test('changing router role requires an IPv6 choice in either direction',()=>{
+    assert.throws(()=>model.networkPlan(mainIPv6,{...env,role:'bypass'}),/IPv6/);
+    assert.throws(()=>model.networkPlan(bypass,{...env,role:'main'}),/IPv6/);
+});
+for(const ipv6 of [true,false])test(`explicit WAN Ethernet settings follow IPv6 ${ipv6}`,()=>{
+    const p=model.networkPlan({...mainIPv6,ipv6},{...env,portDevices:{eth1:'wan_device'}});
+    assert.equal(value(p,'network','wan_device').ipv6,ipv6?'1':'0');
+});
+test('explicit enable restores WAN6 prefix delegation while retaining a valid prefix hint',()=>{
+    for(const hint of [null,'56']){
+        const p=model.networkPlan({...mainIPv6,ipv6:true},{...env,wan6Prefix:hint});
+        const v=value(p,'network','wan6');
+        assert.equal(v.delegate,'1');assert.equal(v.ipv6,'1');
+        assert.equal(v.reqprefix,hint||'auto');
+    }
+});

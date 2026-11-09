@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import selectors
 import shutil
+import shlex
 import subprocess
 import sys
 import time
@@ -218,6 +219,10 @@ for name, source in inputs:
     digest = hashlib.sha256(content.encode()).hexdigest()
     checks = (f"cat > /tmp/{name} <<'JOHNNY_INPUT_EOF'\n{content}JOHNNY_INPUT_EOF\n"
               f"echo '{digest}  /tmp/{name}' | sha256sum -c -\n" + checks)
+if os.environ.get('RELEASE_VERSION'):
+    version = shlex.quote(os.environ['RELEASE_VERSION'])
+    checks = (f'test "$(cat /rom/etc/johnnywrt-version)" = {version}\n'
+              f'test "$(ubus call luci.johnny status | jsonfilter -e \'@.system.display_version\')" = {version}\n' + checks)
 checks = 'set -e\n' + checks
 # BusyBox's interactive console truncated the former 5750-byte JSON line at 510.
 # Validate the exact payload on the host, then verify each transferred file in guest.

@@ -48,6 +48,8 @@ return view.extend({
             || ['ip6addr','ip6prefix'].some(k=>uci.get('network','lan',k))
             || uci.sections('network','bridge-vlan').length>0;
         return {ports,bridge:bridge?.['.name'],interfaces:interfaces.map(s=>s['.name']),complex,
+            role:wan?'main':'bypass',portDevices:Object.fromEntries(devices.filter(s=>ports.includes(s.name)).map(s=>[s.name,s['.name']])),
+            wan6Prefix:/^(?:[1-9]|[1-5][0-9]|6[0-4])$/.test(uci.get('network','wan6','reqprefix')||'')?uci.get('network','wan6','reqprefix'):null,
             pending:!!data.status.pending_network||Object.values(data.changes||{}).some(x=>x.length),
             lanZone:lanZone?.['.name'],wanZone:wanZone?.['.name'],
             ip6assign:Number(uci.get('network','lan','ip6assign'))>0?uci.get('network','lan','ip6assign'):null,
@@ -86,6 +88,7 @@ return view.extend({
         options.map(([value,label])=>E('option',{value,selected:value===this.values[key]||null},label)));},
     choices:function(key,options){return E('div',{class:'jw-choice-grid'},options.map(([value,label,description])=>E('label',{class:'jw-choice '+(this.values[key]===value?'jw-choice-selected':'')},[
         E('input',{type:'radio',name:key,value,checked:this.values[key]===value||null,change:()=>{
+            if(key==='role'&&value!==this.values.role&&this.values.ipv6===undefined)this.values.ipv6=this.ipv6Enabled;
             this.values[key]=value;
             if(key==='role'&&value==='main')this.values.lanPorts=this.values.lanPorts.filter(p=>p!==this.values.wanPort);
             this.draw();}}),
@@ -131,7 +134,7 @@ return view.extend({
             const toggle6=this.button(ipv6?'关闭 IPv6':'开启 IPv6',()=>{v.ipv6=!ipv6;this.draw();},readonly);
             toggle6.className='jw-toggle'+(ipv6?' jw-toggle-on':'');toggle6.setAttribute('role','switch');toggle6.setAttribute('aria-checked',String(ipv6));
             contents.push(E('div',{class:'jw-field'},[E('strong',{},'IPv6'),E('div',{class:'jw-dhcp-control'},[toggle6,E('span',{},ipv6?'已开启':'已关闭')])]),
-                E('p',{class:'jw-field-hint'},(main?'开启后通过 WAN 获取 IPv6，并向 LAN 分配。':'开启后仅为本机获取上级 IPv6，不向内网分配地址。')+' 未切换时保留现有设置；切换后随本页应用。关闭仅影响本机 LAN/WAN，其他设备仍由主路由控制。'));
+                E('p',{class:'jw-field-hint'},(main?'开启后通过 WAN 获取 IPv6，并向 LAN 分配。':'开启后仅为本机获取上级 IPv6，不向内网分配地址。')+' 同模式下未切换时保留现有设置；更换路由模式时会按开关状态调整，请在预览中确认。关闭仅影响本机 LAN/WAN，其他设备仍由主路由控制。'));
         }else{
             contents.push(E('div',{class:'jw-plan-summary'},this.plan.summary.map(s=>E('p',{},[E('span',{},'✓'),s]))),
                 E('p',{},'应用后网络会暂时断开。请按 LuCI 的提示重新连接并确认，超时未确认将自动恢复。'),

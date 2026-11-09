@@ -3,12 +3,17 @@
 set -e
 script=${1:-/usr/libexec/johnny-update}
 candidate=${2:-}
+expected_repo=${3:-https://github.com/Johnnnypro/JohnnyWrt}
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 sed '/^case "${1:-status}" in/,$d' "$script" | sed "s|^work=/tmp/johnny-update$|work=$tmp/state|" > "$tmp/library"
 . "$tmp/library"
-test "$repo" = https://github.com/Johnnnypro/JohnnyWrt
-test "$api" = https://api.github.com/repos/Johnnnypro/JohnnyWrt/releases/latest
+case "$expected_repo" in
+    https://github.com/Johnnnypro/JohnnyWrt|https://github.com/Johnnnnnnnyx/ImmortalWrt-ImageBuilder) ;;
+    *) exit 1 ;;
+esac
+test "$repo" = "$expected_repo"
+test "$api" = "https://api.github.com/repos/${expected_repo#https://github.com/}/releases/latest"
 latest=Johnnywrt-ISO-25.12.2-100
 fixture() {
     printf '{"target":"%s","format":"%s","version":"%s","tag":"%s","rootfs_mb":%s,"display_version":"26.11.10"}\n' \

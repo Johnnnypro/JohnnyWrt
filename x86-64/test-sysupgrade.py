@@ -216,6 +216,8 @@ test -s /etc/zerotier/identity.secret
                 '/etc/zerotier/networks.d/0123456789abcdef.local.conf',
                 '/etc/meowx/subscriptions/upgrade-test.yaml']
     baseline = retention_snapshot(client, retained, 'baseline')
+    baseline_repository = json.loads(run(client, '/usr/libexec/johnny-update status'))['repository'].removesuffix('/releases')
+    assert baseline_repository in ('https://github.com/Johnnnypro/JohnnyWrt', 'https://github.com/Johnnnnnnnyx/ImmortalWrt-ImageBuilder')
     with client.open_sftp() as sftp:
         sftp.put(str(Path(__file__).with_name('test-update-metadata.sh')), '/tmp/test-update-metadata.sh')
     # Round 1 validates old -> new; round 2 validates the new upgrade baseline.
@@ -224,7 +226,8 @@ test -s /etc/zerotier/identity.secret
         for path in retained:
             assert path in backup_list, f'Not preserved by sysupgrade: {path}'
         run(client, f'curl -fsS http://10.0.2.2:33380/{image.name} -o /tmp/upgrade.img.gz')
-        run(client, 'sh /tmp/test-update-metadata.sh /usr/libexec/johnny-update /tmp/upgrade.img.gz')
+        expected_repository = baseline_repository if round_number == 1 else 'https://github.com/Johnnnypro/JohnnyWrt'
+        run(client, 'sh /tmp/test-update-metadata.sh /usr/libexec/johnny-update /tmp/upgrade.img.gz ' + expected_repository)
         run(client, 'sysupgrade -T /tmp/upgrade.img.gz')
         before = retention_snapshot(client, retained, f'round-{round_number}-before')
         assert_retained(baseline, before)

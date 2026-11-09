@@ -67,6 +67,7 @@ return baseclass.extend({
             throw new Error('检测到自定义接口或 VLAN，请使用高级网络设置');
         const main = input.role === 'main';
         if (!main && input.role !== 'bypass') throw new Error('请选择主路由或旁路由');
+        if (env.role && env.role !== input.role && typeof input.ipv6 !== 'boolean') throw new Error('切换路由模式时请确认 IPv6 开关');
         const ports = input.lanPorts || [];
         if (!ports.length || new Set(ports).size !== ports.length || ports.some(x => !(env.ports || []).includes(x)))
             throw new Error('请选择有效且不重复的 LAN 网口');
@@ -111,7 +112,7 @@ return baseclass.extend({
                 password: input.protocol === 'pppoe' ? input.password : null,
                 dns: dns.length ? dns : null, peerdns: dns.length ? '0' : '1' });
             put('firewall', env.wanZone || 'johnny_wan', 'zone', { name: 'wan', network: ['wan', 'wan6'], ...(!env.wanZone ? { input: 'REJECT', output: 'ACCEPT', forward: 'REJECT' } : {}), masq: '1', mtu_fix: '1' });
-            put('firewall', env.lanZone || 'johnny_lan', 'zone', { name: 'lan', network: ['lan'], input: 'ACCEPT', output: 'ACCEPT', forward: 'ACCEPT' });
+            put('firewall', env.lanZone || 'johnny_lan', 'zone', { name: 'lan', network: ['lan', ...(input.ipv6 === undefined && (env.interfaces || []).includes('lan6') ? ['lan6'] : [])], input: 'ACCEPT', output: 'ACCEPT', forward: 'ACCEPT' });
             if (!env.lanWanForward) put('firewall', 'johnny_lan_wan', 'forwarding', { src: 'lan', dest: 'wan' });
         } else {
             deletes.push({ config: 'network', section: 'wan' }, { config: 'network', section: 'wan6' });
@@ -124,18 +125,18 @@ return baseclass.extend({
             set('dhcp', 'lan', { ra: enabled && main ? 'server' : 'disabled', dhcpv6: enabled && main ? 'server' : 'disabled', ndp: 'disabled' });
             if (main) {
                 set('network', 'wan', { ipv6: enabled ? '1' : '0' });
+                if (env.portDevices?.[input.wanPort]) put('network', env.portDevices[input.wanPort], 'device', { name: input.wanPort, ipv6: enabled ? '1' : '0' });
                 // PPPoE ipv6=1 negotiates IPv6CP; the explicit WAN6 owns DHCPv6.
                 const wan6 = updates.find(x => x.config === 'network' && x.section === 'wan6');
-                const values = { proto: 'dhcpv6', device: '@wan', ifname: null, auto: enabled ? '1' : '0' };
+                const values = { proto: 'dhcpv6', device: '@wan', ifname: null, auto: enabled ? '1' : '0', ipv6: enabled ? '1' : '0',
+                    ...(enabled ? { delegate: '1', reqprefix: env.wan6Prefix || 'auto' } : {}) };
                 if (wan6) Object.assign(wan6.values, values); else put('network', 'wan6', 'interface', values);
                 deletes.push({ config: 'network', section: 'lan6' });
             } else {
-                if (enabled) put('network', 'lan6', 'interface', { proto: 'dhcpv6', device: '@lan', auto: '1', reqprefix: 'no' });
+                if (enabled) put('network', 'lan6', 'interface', { proto: 'dhcpv6', device: '@lan', auto: '1', ipv6: '1', delegate: '0', reqprefix: 'no' });
                 else deletes.push({ config: 'network', section: 'lan6' });
                 put('firewall', env.lanZone || 'johnny_lan', 'zone', { name: 'lan', network: enabled ? ['lan', 'lan6'] : ['lan'], input: 'ACCEPT', output: 'ACCEPT', forward: 'ACCEPT' });
             }
-        } else if (main && (env.interfaces || []).includes('lan6')) {
-            deletes.push({ config: 'network', section: 'lan6' });
         }
         const summary = [main ? '主路由' : '旁路由', 'LAN：' + ports.join('、'),
             staticLan ? '管理地址：' + input.address + ' / ' + input.mask : '管理地址：自动获取',

@@ -201,7 +201,7 @@ test('network wizard accepts and preserves native WAN deny policies',()=>{
         t.uci.sections=(config,type)=>config==='firewall'&&type==='zone'?[{'.name':'wan_zone',name:'wan',network:['wan','wan6'],input:'REJECT',output:'ACCEPT',forward:policy}]:[];
         const env=t.view.environment({status:{interfaces:[{name:'eth0',physical:true},{name:'eth1',physical:true}]},changes:{}});
         assert.equal(env.complex,false,policy);
-        const plan=model.networkPlan({role:'main',wanPort:'eth1',lanPorts:['eth0'],protocol:'dhcp',address:'192.168.50.1',mask:'255.255.255.0',dhcp:true},env);
+        const plan=model.networkPlan({role:'main',wanPort:'eth1',lanPorts:['eth0'],protocol:'dhcp',address:'192.168.50.1',mask:'255.255.255.0',dhcp:true,ipv6:false},env);
         const wan=plan.updates.find(s=>s.config==='firewall'&&s.section==='wan_zone');
         for(const key of ['input','output','forward'])assert.equal(Object.hasOwn(wan.values,key),false,key);
     }
@@ -356,5 +356,17 @@ test('network wizard refuses custom LAN IPv6 clients and relay configurations',(
     for(const values of [ {'network.lan6.proto':'static','network.lan6.device':'@lan'}, {'network.lan6.proto':'dhcpv6','network.lan6.device':'eth1'}, {'dhcp.lan.ra':'relay'} ]){
         const t=setup('johnny-network.js');t.uci.get=(...keys)=>values[keys.join('.')];
         assert.equal(t.view.environment({status:{interfaces:[]},changes:{}}).complex,true);
+    }
+});
+
+test('role changes carry the existing IPv6 switch into an explicit preview choice',async()=>{
+    for(const initial of ['main','bypass']){
+        const t=setup('johnny-network.js');
+        const config=initial==='main'?{'network.wan.device':'eth1','network.wan6.proto':'dhcpv6'}:{'network.lan6.proto':'dhcpv6','network.lan6.device':'@lan'};
+        t.uci.get=(...keys)=>config[keys.join('.')];
+        t.setStatus({interfaces:[{name:'eth0',physical:true},{name:'eth1',physical:true}],zerotier:{lan:{}}});
+        await t.view.render(await t.view.load());assert.equal(t.view.values.ipv6,undefined);
+        t.nodes.findLast(n=>n.tag==='input'&&n.value===(initial==='main'?'bypass':'main')).change();
+        assert.equal(t.view.values.ipv6,true);
     }
 });

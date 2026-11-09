@@ -57,6 +57,11 @@ try {
                 assert(live.get('network','wan6','device')=='@wan');
                 assert(live.get('network','wan6','auto')==(enabled?'1':'0'));
                 assert(live.get('network','wan','ipv6')==(enabled?'1':'0'));
+                assert(trim(readfile('/proc/sys/net/ipv6/conf/eth1/disable_ipv6'))==(enabled?'0':'1'));
+                if (enabled) {
+                    assert(live.get('network','wan6','delegate')=='1');
+                    assert(live.get('network','wan6','reqprefix')=='auto');
+                }
             } else if (enabled) {
                 assert(live.get('network','lan6','device')=='@lan');
                 assert(live.get('network','lan6','reqprefix')=='no');
