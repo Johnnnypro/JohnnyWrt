@@ -118,7 +118,7 @@ def verify_package_versions(client):
     print('PASS: installed MeowX versions match the pinned manifest', flush=True)
 
 
-def firewall_migration_hash(config, fields):
+def firewall_migration_hashes(config, fields):
     # These vendor scripts recreate their exact default includes at EOF.
     # Unknown includes could change rule precedence when crossed: reject them.
     names = ('zerotier_input', 'zerotier_srcnat', 'zerotier_forward', 'meowx', 'johnny_zt_nat')
@@ -139,8 +139,11 @@ def firewall_migration_hash(config, fields):
     positions = [config.index(block) for block in blocks]
     if positions != sorted(positions) or config.index(own) > positions[-1]:
         return None  # Preserve the ordering between the two script includes.
-    expected = b''.join(part for part in parts if part not in blocks) + b''.join(blocks)
-    return hashlib.sha256(expected).hexdigest()
+    targets = {
+        'meowx_only': b''.join(part for part in parts if part != blocks[-1]) + blocks[-1],
+        'zerotier_then_meowx': b''.join(part for part in parts if part not in blocks) + b''.join(blocks),
+    }
+    return {name: hashlib.sha256(data).hexdigest() for name, data in targets.items()}
 
 
 def retention_snapshot(client, paths, phase):
@@ -168,7 +171,7 @@ def retention_snapshot(client, paths, phase):
         accounts[name] = hashlib.sha256(value.encode()).hexdigest()
     snapshot = {'files': sums, 'uci_fields': fields, 'shadow_accounts': accounts,
                 'meowx_before_defaults': prefixes,
-                'firewall_after_vendor_defaults': firewall_migration_hash(run(client, 'cat /etc/config/firewall', sensitive=True).encode(), fields),
+                'firewall_after_vendor_defaults': firewall_migration_hashes(run(client, 'cat /etc/config/firewall', sensitive=True).encode(), fields),
                 'uptime': run(client, 'cut -d " " -f 1 /proc/uptime').strip(),
                 'file_metadata': run(client, 'ls -ln ' + ' '.join(paths)).splitlines(),
                 'pending_uci_keys': [line.partition('=')[0] for line in run(client, 'uci changes', sensitive=True).splitlines()
@@ -198,7 +201,7 @@ def assert_retained(baseline, current):
         break
     firewall = '/etc/config/firewall'
     expected_firewall = baseline.get('firewall_after_vendor_defaults')
-    if firewall in changed and expected_firewall and current['files'].get(firewall) == expected_firewall:
+    if firewall in changed and expected_firewall and current['files'].get(firewall) in expected_firewall.values():
         changed.remove(firewall)
         migrated = True
     assert not changed, 'Retained settings changed: ' + ', '.join(changed)

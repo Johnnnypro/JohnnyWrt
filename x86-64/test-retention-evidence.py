@@ -30,7 +30,7 @@ class EvidenceTest(unittest.TestCase):
                 self.assertTrue(sensitive)
                 return state['config']
             return ''
-        namespace = dict(hashlib=hashlib, json=json, firewall_migration_hash=lambda *a: None, image=Path(directory.name) / 'test.img', run=run)
+        namespace = dict(hashlib=hashlib, json=json, firewall_migration_hashes=lambda *a: None, image=Path(directory.name) / 'test.img', run=run)
         exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), 'exec'), namespace)
         def snapshot(config, fields):
             state.update(config=config, fields=fields)
@@ -148,7 +148,7 @@ class EvidenceTest(unittest.TestCase):
     def firewall_fixture(self):
         source = Path(__file__).with_name('test-sysupgrade.py')
         functions = [n for n in ast.parse(source.read_text()).body if isinstance(n, ast.FunctionDef)
-                     and n.name in ('assert_retained', 'firewall_migration_hash')]
+                     and n.name in ('assert_retained', 'firewall_migration_hashes')]
         self.assertEqual(len(functions), 2)
         namespace = dict(hashlib=hashlib, re=re)
         exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), 'exec'), namespace)
@@ -168,7 +168,7 @@ class EvidenceTest(unittest.TestCase):
             values = fields if values is None else values
             return {'files': {'/etc/config/firewall': hashlib.sha256(config.encode()).hexdigest()},
                     'uci_fields': values, 'shadow_accounts': {}, 'pending_uci_keys': [],
-                    'firewall_after_vendor_defaults': namespace['firewall_migration_hash'](config.encode(), values)}
+                    'firewall_after_vendor_defaults': namespace['firewall_migration_hashes'](config.encode(), values)}
         return namespace['assert_retained'], snapshot, original, expected, fields
 
     def test_exact_vendor_include_move_keeps_custom_rules_and_original_baseline(self):
@@ -190,6 +190,22 @@ class EvidenceTest(unittest.TestCase):
         reordered = expected.replace('keep_first', 'TEMP').replace('keep_second', 'keep_first').replace('TEMP', 'keep_second')
         with self.assertRaises(AssertionError):
             check(baseline, snapshot(reordered))
+
+    def test_meowx_only_then_full_vendor_move_uses_the_same_original_baseline(self):
+        check, snapshot, original, complete, fields = self.firewall_fixture()
+        meowx = original[original.index("config include 'meowx'"):]
+        canary = "config rule 'after_meowx'\n\toption target 'DROP'\n\n"
+        baseline = snapshot(original + canary)
+        saved = copy.deepcopy(baseline)
+        partial = original[:-len(meowx)] + canary + meowx
+        complete = complete.replace("config include 'zerotier_input'", canary + "config include 'zerotier_input'", 1)
+        check(baseline, snapshot(partial))
+        check(baseline, snapshot(complete))
+        check(baseline, snapshot(complete))
+        self.assertEqual(baseline, saved)
+        first = original[:original.index("config include 'zerotier_srcnat'")]
+        with self.assertRaises(AssertionError):
+            check(baseline, snapshot((original + canary).replace(first, '', 1) + first))
 
     def test_vendor_move_rejects_unknown_includes_and_nondefault_or_duplicate_blocks(self):
         check, snapshot, original, expected, fields = self.firewall_fixture()
@@ -225,7 +241,7 @@ class EvidenceTest(unittest.TestCase):
                 return "meowx.config.api_secret='PRIVATE_PENDING'\n"
             return '1'
         with tempfile.TemporaryDirectory() as directory:
-            namespace = dict(hashlib=hashlib, json=json, firewall_migration_hash=lambda *a: None, image=Path(directory) / 'test.img', run=run)
+            namespace = dict(hashlib=hashlib, json=json, firewall_migration_hashes=lambda *a: None, image=Path(directory) / 'test.img', run=run)
             exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), namespace)
             result = namespace['retention_snapshot'](None, ['/etc/config/meowx'], 'baseline')
             text = (Path(directory) / 'retention-baseline.json').read_text()
