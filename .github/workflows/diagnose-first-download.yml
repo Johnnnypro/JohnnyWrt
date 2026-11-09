@@ -1,0 +1,61 @@
+name: Diagnose first download after old firmware reboot
+on:
+  workflow_dispatch:
+  push:
+    branches: [release/26.11.10]
+    paths: [.github/workflows/diagnose-first-download.yml]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: a8e49976cec4ca6d09d2720e4bee957143b1eb15
+      - name: Prepare unchanged published firmware and passive packet capture
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p verification/previous verification/upgrade verification/bin
+          gh release download Johnnywrt-ISO-25.12.2-1793414110 --repo Johnnnypro/JohnnyWrt --pattern Johnnywrt-x86_64-squashfs-combined-efi.img.gz --dir verification/previous
+          echo 'f5bcd15b8677364ef84ae0c544bf0ff4f9c9c7645c1f723724239884d670eb58  verification/previous/Johnnywrt-x86_64-squashfs-combined-efi.img.gz' | sha256sum -c -
+          gzip -dc verification/previous/*.img.gz > verification/previous/base.img
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qemu-system-x86
+          python3 -m pip install paramiko==3.5.1
+          cat > verification/bin/qemu-system-x86_64 <<'SH'
+          #!/bin/sh
+          exec /usr/bin/qemu-system-x86_64 -object "filter-dump,id=first-download,netdev=lan,file=$GITHUB_WORKSPACE/verification/upgrade/network.pcap" "$@"
+          SH
+          chmod +x verification/bin/qemu-system-x86_64
+      - name: Observe the first original APK request without warming DNS or retrying
+        run: |
+          export PATH="$GITHUB_WORKSPACE/verification/bin:$PATH"
+          python3 -u - <<'PY'
+          from pathlib import Path
+          import sys
+          source = Path('x86-64/test-sysupgrade.py').resolve()
+          text = source.read_text()
+          old = "print(run(client, 'apk update && apk upgrade meowx meowx-core luci-app-meowx luci-i18n-meowx-zh-cn && apk add tailscale'), flush=True)"
+          assert text.count(old) == 1
+          # Keep the original boot/reboot/readiness path and single APK request.
+          # End before package installation or any firmware upgrade.
+          new = "print(run(client, 'apk update'), flush=True)\n        client.close()\n        completed = True\n        sys.exit(0)"
+          sys.argv = [str(source), 'verification/previous/base.img', 'verification/upgrade/firmware.img.gz', '--with-meowx-mesh']
+          exec(compile(text.replace(old, new), str(source), 'exec'), {'__name__': '__main__', '__file__': str(source)})
+          PY
+      - name: Preserve packet trace and original failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: first-download-${{ github.run_id }}
+          path: |
+            verification/upgrade/network.pcap
+            verification/upgrade/upgrade-test.log
+            verification/upgrade/upgrade-network-failure.log
+            verification/upgrade/upgrade-test-screen.ppm
+            verification/upgrade/upgrade-failed.img.gz
+          if-no-files-found: error
+          retention-days: 7
