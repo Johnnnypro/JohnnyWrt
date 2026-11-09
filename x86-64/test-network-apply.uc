@@ -35,6 +35,7 @@ function stage(plan) {
 let failure;
 try {
     for(let plan in json(readfile('/tmp/johnny-network-plans.json'))) {
+        printf('NETWORK_TEST_BEGIN %s/%s IPv6=%J\n',plan.role,plan.protocol,plan.ipv6);
         stage(plan);
         call('apply',{rollback:true,timeout:10});
         sleep(3000);
@@ -49,8 +50,8 @@ try {
         }
         if (type(plan.ipv6)=='bool') {
             let enabled=plan.ipv6, main=plan.role=='main';
-            assert(live.get('network','lan','ipv6')==(enabled?'1':'0'));
-            assert(trim(readfile('/proc/sys/net/ipv6/conf/br-lan/disable_ipv6'))==(enabled?'0':'1'));
+            assert(live.get('network','lan','ipv6')==(enabled?'1':'0'),'LAN UCI IPv6='+live.get('network','lan','ipv6'));
+            assert(trim(readfile('/proc/sys/net/ipv6/conf/br-lan/disable_ipv6'))==(enabled?'0':'1'),'br-lan disable_ipv6='+readfile('/proc/sys/net/ipv6/conf/br-lan/disable_ipv6'));
             assert(live.get('dhcp','lan','ra')==(enabled&&main?'server':'disabled'));
             assert(live.get('dhcp','lan','dhcpv6')==(enabled&&main?'server':'disabled'));
             if (main) {
@@ -66,7 +67,7 @@ try {
                 assert(live.get('network','lan6','device')=='@lan');
                 assert(live.get('network','lan6','reqprefix')=='no');
             } else assert(!live.get('network','lan6'));
-            assert(system('fw4 check >/dev/null 2>&1')==0);
+            assert(system('fw4 check')==0,'IPv6 firewall validation failed');
         }
         // Deliberately do not confirm: native rpcd must restore the exact files.
         sleep(9000);
@@ -80,7 +81,7 @@ try {
     sleep(7000);
     assert(cursor().get('network','lan','hostname')=='johnny-confirm-test');
     print('PASS: confirmed network change survives rollback timeout\n');
-} catch(e) { failure=e; }
+} catch(e) { printf('NETWORK_TEST_FAILURE %J\n',e); failure=e; }
 {
     for(let name,text in saved)writefile('/etc/config/'+name,text);
     rpc('session','destroy',{ubus_rpc_session:sid});

@@ -117,8 +117,8 @@ def retention_snapshot(client, paths, phase):
     without_ggy = hashlib.sha256(config[:-len(addition)]).hexdigest() if config.endswith(addition) else None
     # Record names and hashes only: never put passwords or identity keys in logs.
     fields = {}
-    for line in run(client, 'uci -q show network; uci -q show meowx; uci -q show zerotier', sensitive=True).splitlines():
-        if '=' not in line or not line.startswith(('network.', 'meowx.', 'zerotier.')):
+    for line in run(client, 'uci -q show network; uci -q show dhcp; uci -q show firewall; uci -q show meowx; uci -q show zerotier', sensitive=True).splitlines():
+        if '=' not in line or not line.startswith(('network.', 'dhcp.', 'firewall.', 'meowx.', 'zerotier.')):
             continue
         name, _, value = line.partition('=')
         fields[name] = hashlib.sha256(value.encode()).hexdigest()
@@ -131,7 +131,7 @@ def retention_snapshot(client, paths, phase):
                 'uptime': run(client, 'cut -d " " -f 1 /proc/uptime').strip(),
                 'file_metadata': run(client, 'ls -ln ' + ' '.join(paths)).splitlines(),
                 'pending_uci_keys': [line.partition('=')[0] for line in run(client, 'uci changes', sensitive=True).splitlines()
-                                     if line.lstrip('-').startswith(('network.', 'meowx.', 'zerotier.'))]}
+                                     if line.lstrip('-').startswith(('network.', 'dhcp.', 'firewall.', 'meowx.', 'zerotier.'))]}
     (image.parent / f'retention-{phase}.json').write_text(json.dumps(snapshot, indent=2))
     return snapshot
 
@@ -204,13 +204,16 @@ try:
 uci set zerotier.global.enabled='0'
 uci set system.@system[0].hostname='upgrade-check'
 uci set network.lan.hostname='retained-test'
+uci set network.lan.ipv6='0'
+uci set dhcp.lan.ra='disabled'
+uci set dhcp.lan.dhcpv6='disabled'
 uci commit
 mkdir -p /etc/meowx/subscriptions /etc/zerotier/networks.d
 printf 'rules:\n  - MATCH,DIRECT\n' > /etc/meowx/subscriptions/upgrade-test.yaml
 printf 'allowDefault=0\nallowDNS=0\n' > /etc/zerotier/networks.d/0123456789abcdef.local.conf
 test -s /etc/zerotier/identity.secret
 ''')
-    retained = ['/etc/config/network', '/etc/config/meowx', '/etc/config/zerotier',
+    retained = ['/etc/config/network', '/etc/config/dhcp', '/etc/config/firewall', '/etc/config/meowx', '/etc/config/zerotier',
                 '/etc/shadow', '/etc/dropbear/dropbear_ed25519_host_key',
                 '/etc/zerotier/identity.secret',
                 '/etc/zerotier/networks.d/0123456789abcdef.local.conf',
