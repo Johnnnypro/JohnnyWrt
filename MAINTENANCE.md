@@ -359,3 +359,13 @@
 - 精确文件比较已通过，最终接口 dump 为 lan/loopback/zerotier，无 WAN/WAN6；LAN 为 DHCP、br-lan 恢复 eth0+eth1 和原 IPv6 状态。验收必须区分三层 WAN 与已回归桥的物理成员。不能将该物理成员的暂态标记当作仍在运行的 WAN。
 - 运行时检查现增加 WAN/WAN6/WAN_6 接口存在性：主路由应用必须出现 WAN，旁路由与回滚必须不存在这些接口；完整 LAN 协议、up/pending、桥端口和 br-lan IPv6 检查不变。实际作为 WAN 时的 eth1 IPv6 开关仍强制检查。取消的是“没有 WAN 时仍要求 WAN 内核标记”的错误断言，未改变产品逻辑、配置字节检查、自动回滚要求或发布门禁。
 - 新增检查器回归：残留 WAN 必须失败、真实 WAN 不服从显式 IPv6 设置必须失败；实际解释器验证 8 种不完整状态被拒绝，完整脚本仅编译通过，串口输入 8 项通过。较长 SSH 命令遇到 EOF 后改用 Termark 临时上传并编译，随后删除；实机 boot_id 与开始时相同，未执行网络测试或重启。
+
+### 26.11.10 只读诊断 #7（42660779287）
+
+- 六个旁路由场景与主路由 DHCP 保持/开启场景通过；主路由 DHCP 关闭 IPv6 时，br-lan 内核标记正确为 1，但实际作为 WAN 的 eth1 仍为 0。此断言有效，不得放宽。证据 ZIP SHA256 `1473acc878d12c8cecf155fcbacf8bfac768d2389f77bc4ef8fc2d56a5fc032c` 已核对。未开始编译或发布。
+- 精确版本为 netifd `2026.02.26~cbb83a18-r2`，官方稳定源仍使用该包。该提交 bridge_disable_member 无条件把物理 device 的 settings.ipv6 改为 1 并清标记；原 device 配置仍为 ipv6=0 时，device_set_config 的相等判断跳过重读；显式 device 又禁止接口级设置覆盖。不能用最新 master 的实现代替固件实际版本判断。
+- 本地复用固定 SHA256 的 #14 原始镜像，在隔离 QEMU 内直接测试 main/DHCP/off：原显式 device=0 立即复现，无需前八个场景，UCI=0 而 device status.ipv6=true、内核=0 且有 link-local 地址；无显式 device、原显式 device=1 两种对照均通过关闭、原生自动回滚及确认后保留。实机未应用网络配置。安装 Homebrew QEMU 前发现需要大量源码依赖而中止，改用既有 UTM 只读镜像中的 QEMU；原压缩固件未改变。
+- 采用既有“自定义 IPv6 拓扑使用高级设置”的支持边界：目标 WAN 仍是桥成员、存在显式物理 device.ipv6=0、且用户未显式开启 IPv6 时，规划与应用前复验均拒绝，显示明确高级设置提示。原 WAN 的关闭操作、普通网口及 device=1→0 不受此限制；不偷偷替换基础 netifd 或加入测试专用 sysctl。新增模型/UI 回归先失败后通过，UI 确认拒绝时零 UCI 写入；独立审查补齐 UCI 等价关闭值 false，两项新负例再次先失败后通过，完整 Node 110 项通过。
+- 运行矩阵使用可支持的显式 device=1 baseline，保留真实 eth1/br-lan 内核关闭断言；问题 device=0 由拒绝回归覆盖，不能宣称已支持它。另跑普通无显式 device 的完整本地矩阵作对照。
+- 独立审查补强：逐个检查 WAN/WAN6/WAN_6/LAN6；开启的 DHCP/静态客户端必须有正确 odhcp6c 进程、逻辑接口和设备；关闭必须停止且 WAN6 up/pending/autostart=false；回滚必须移除新接口和客户端，拒绝重复动态 WAN_6。无 PPPoE 对端时不声称 IPv6CP/PD 协商通过。清理先销毁会触发回滚的测试会话，再恢复初始文件，防止回滚覆盖清理。所有完整启动/升级门禁仍必须通过后才能编译。
+- 本地两套完整同入口 UEFI/串口检查均返回退出码 0：普通无显式 device 与候选显式 device=1，各 15 组网络应用/回滚通过；MeowX 动作与真实控制器流量、订阅、离线规则、内核模块源、页面、ZeroTier 重绑定及限定 LAN 回包 NAT 均通过。原始压缩镜像两次 SHA256 仍为固定 #14 值。候选检查使用带客户端验证的完整测试体；随后仅补充 guard 的 false 等价值回归，完整最新源码仍须经云端预检。

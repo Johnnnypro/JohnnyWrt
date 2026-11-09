@@ -49,6 +49,7 @@ return view.extend({
             || uci.sections('network','bridge-vlan').length>0;
         return {ports,bridge:bridge?.['.name'],interfaces:interfaces.map(s=>s['.name']),complex,
             role:wan?'main':'bypass',portDevices:Object.fromEntries(devices.filter(s=>ports.includes(s.name)).map(s=>[s.name,s['.name']])),
+            bridgePorts:list(bridge?.ports),portIPv6:Object.fromEntries(devices.filter(s=>ports.includes(s.name)).map(s=>[s.name,s.ipv6])),
             wan6Prefix:/^(?:[1-9]|[1-5][0-9]|6[0-4])$/.test(uci.get('network','wan6','reqprefix')||'')?uci.get('network','wan6','reqprefix'):null,
             pending:!!data.status.pending_network||Object.values(data.changes||{}).some(x=>x.length),
             lanZone:lanZone?.['.name'],wanZone:wanZone?.['.name'],

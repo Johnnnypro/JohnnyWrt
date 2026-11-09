@@ -72,6 +72,9 @@ return baseclass.extend({
         if (!ports.length || new Set(ports).size !== ports.length || ports.some(x => !(env.ports || []).includes(x)))
             throw new Error('请选择有效且不重复的 LAN 网口');
         if (main && (ports.includes(input.wanPort) || !env.ports.includes(input.wanPort))) throw new Error('WAN 和 LAN 必须使用不同的物理网口');
+        // Stable netifd loses an unchanged explicit IPv6 disable when a port leaves a bridge.
+        if (main && input.ipv6 !== true && ['0','false'].includes(env.portIPv6?.[input.wanPort]) && (env.bridgePorts || []).includes(input.wanPort))
+            throw new Error('该自定义网口已关闭 IPv6，当前系统无法安全地将它改为 WAN 并保留关闭状态，请使用高级网络设置');
         if (!['dhcp', 'static', ...(main ? ['pppoe'] : [])].includes(input.protocol)) throw new Error('不支持的地址获取方式');
         const dns = input.dns || [];
         if (!Array.isArray(dns) || dns.length > 3) throw new Error('DNS 地址最多填写三个');

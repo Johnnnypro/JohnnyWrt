@@ -193,3 +193,11 @@ test('explicit enable restores WAN6 prefix delegation while retaining a valid pr
         assert.equal(v.reqprefix,hint||'auto');
     }
 });
+for(const disabled of ['0','false'])test(`refuses moving an explicitly IPv6-disabled (${disabled}) bridge member to WAN while keeping IPv6 off`,()=>{
+    const e={...env,bridgePorts:['eth0','eth1'],portIPv6:{eth1:disabled},portDevices:{eth1:'wan_device'}};
+    assert.throws(()=>model.networkPlan({...mainIPv6,ipv6:false},e),/自定义.*IPv6.*高级/);
+    assert.throws(()=>model.networkPlan(mainIPv6,e),/自定义.*IPv6.*高级/);
+    assert.doesNotThrow(()=>model.networkPlan({...mainIPv6,ipv6:true},e));
+    assert.doesNotThrow(()=>model.networkPlan({...mainIPv6,ipv6:false},{...e,bridgePorts:['eth0']}));
+    assert.doesNotThrow(()=>model.networkPlan({...mainIPv6,ipv6:false},{...e,portIPv6:{eth1:'1'}}));
+});

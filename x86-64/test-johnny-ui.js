@@ -358,6 +358,16 @@ test('network wizard refuses custom LAN IPv6 clients and relay configurations',(
         assert.equal(t.view.environment({status:{interfaces:[]},changes:{}}).complex,true);
     }
 });
+for(const disabled of ['0','false'])test(`network apply rejects disabled (${disabled}) custom bridge-port transition before any UCI write`,async()=>{
+    const t=setup('johnny-network.js');let writes=0;
+    t.uci.sections=(c,type)=>c==='network'&&type==='device'?[{'.name':'bridge',name:'br-lan',type:'bridge',ports:['eth0','eth1']},{'.name':'custom',name:'eth1',ipv6:disabled}]:[];
+    for(const key of ['add','set','unset','remove','save'])t.uci[key]=()=>{writes++;};
+    t.setStatus({interfaces:[{name:'eth0',physical:true},{name:'eth1',physical:true}]});
+    t.view.values={role:'main',protocol:'dhcp',lanPorts:['eth0'],wanPort:'eth1',address:'192.168.50.1',mask:'255.255.255.0',ipv6:false};
+    t.view.snapshot=t.view.networkSnapshot();
+    await assert.rejects(t.view.applyPlan({}),/自定义.*IPv6.*高级/);
+    assert.equal(writes,0);
+});
 
 test('role changes carry the existing IPv6 switch into an explicit preview choice',async()=>{
     for(const initial of ['main','bypass']){

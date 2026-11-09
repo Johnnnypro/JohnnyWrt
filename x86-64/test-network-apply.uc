@@ -21,26 +21,57 @@ assert(port_signature(['eth1','eth0'])=='eth0,eth1','bridge comparison must prod
 assert(port_signature(['eth0'])!=port_signature(['eth0','eth1']),'partial bridge must not equal restored bridge');
 function runtime_state() {
     let lan=rpc('network.interface.lan','status',{});
-    let interfaces=rpc('network.interface','dump',{}).interface;
+    let dump=rpc('network.interface','dump',{}).interface,interfaces={},clients=[];
+    for(let name in ['wan','wan6','wan_6','lan6']) {
+        let iface=filter(dump,i=>i.interface==name)[0];
+        interfaces[name]=iface?{proto:iface.proto,device:iface.device,autostart:iface.autostart,up:iface.up,pending:iface.pending}:null;
+    }
+    for(let path in glob('/proc/[0-9]*/cmdline')) {
+        let args=filter(split(readfile(path)||'','\x00'),s=>s!='');
+        if(!match(args[0]||'',/(^|\/)odhcp6c$/))continue;
+        let env=split(readfile(replace(path,/cmdline$/,'environ'))||'','\x00');
+        let name=filter(env,s=>substr(s,0,10)=='INTERFACE=')[0]||'INTERFACE=unknown';
+        push(clients,substr(name,10)+':'+args[length(args)-1]);
+    }
     return {up:lan.up,pending:lan.pending,proto:lan.proto,
-        wanPresent:length(filter(interfaces,i=>i.interface=='wan'||i.interface=='wan6'||i.interface=='wan_6'))>0,
+        interfaces,clients:port_signature(clients),
         ports:port_signature(glob('/sys/class/net/br-lan/brif/*')),
         ipv6:trim(readfile('/proc/sys/net/ipv6/conf/br-lan/disable_ipv6')||''),
         wanIPv6:trim(readfile('/proc/sys/net/ipv6/conf/eth1/disable_ipv6')||'')};
 }
 function runtime_matches(state,expected) {
+    for(let name,wanted in expected.interfaces) {
+        let found=state.interfaces[name];
+        if(type(wanted)=='bool') { if(!!found!=wanted)return false; }
+        else if(wanted) {
+            if(!found)return false;
+            for(let key,value in wanted)if(found[key]!=value)return false;
+        }
+    }
     return state.up&&!state.pending&&state.proto==expected.proto&&
-        state.wanPresent==expected.wanPresent&&
+        state.clients==expected.clients&&
         state.ports==expected.ports&&state.ipv6==expected.ipv6&&
         (expected.wanIPv6==null||state.wanIPv6==expected.wanIPv6);
 }
-let restored={up:true,pending:false,proto:'dhcp',ports:'eth0,eth1',ipv6:'0',wanPresent:false};
-assert(!runtime_matches({...restored,wanPresent:true},restored),'rollback must reject a leftover WAN interface');
-assert(!runtime_matches({...restored,wanPresent:true,wanIPv6:'0'},
-    {...restored,wanPresent:true,wanIPv6:'1'}),'active WAN must obey its explicit IPv6 setting');
+let restored={up:true,pending:false,proto:'dhcp',ports:'eth0,eth1',ipv6:'0',clients:'',
+    interfaces:{wan:null,wan6:null,wan_6:null,lan6:null}};
+let restoredExpected={...restored,interfaces:{wan:false,wan6:false,wan_6:false,lan6:false}};
+for(let name in keys(restored.interfaces))
+    assert(!runtime_matches({...restored,interfaces:{...restored.interfaces,[name]:{proto:'dhcpv6'}}},restoredExpected),'rollback must reject leftover '+name);
+assert(!runtime_matches({...restored,wanIPv6:'0'},{...restoredExpected,wanIPv6:'1'}),'active WAN must obey its explicit IPv6 setting');
+assert(!runtime_matches({...restored,clients:'lan6:br-lan'},restoredExpected),'rollback must reject a leftover DHCPv6 client');
+let active={...restored,clients:'wan6:eth1',interfaces:{...restored.interfaces,
+    wan:{proto:'dhcp'},wan6:{proto:'dhcpv6',device:'eth1',autostart:true}}};
+let activeExpected={...restoredExpected,clients:'wan6:eth1',interfaces:{...restoredExpected.interfaces,wan:true,wan6:active.interfaces.wan6}};
+assert(runtime_matches(active,activeExpected),'active WAN6 and its client must be accepted');
+for(let wan6 in [null,{...active.interfaces.wan6,proto:'none'},{...active.interfaces.wan6,device:'br-lan'},{...active.interfaces.wan6,autostart:false}])
+    assert(!runtime_matches({...active,interfaces:{...active.interfaces,wan6}},activeExpected),'missing or incorrect WAN6 must fail');
+for(let clients in ['', 'wan6:br-lan', 'wan6:eth1,wan_6:eth1'])
+    assert(!runtime_matches({...active,clients},activeExpected),'missing, wrong or duplicate DHCPv6 client must fail');
 let baseline={proto:u.get('network','lan','proto'),
     ports:port_signature(map(u.get('network',names.fixture_bridge,'ports'),p=>'/sys/class/net/br-lan/brif/'+p)),
-    ipv6:trim(readfile('/proc/sys/net/ipv6/conf/br-lan/disable_ipv6')),wanPresent:false};
+    ipv6:trim(readfile('/proc/sys/net/ipv6/conf/br-lan/disable_ipv6')),
+    interfaces:{wan:false,wan6:false,wan_6:false,lan6:false},clients:''};
 assert(type(baseline.ports)=='string'&&length(baseline.ports)>0,'baseline bridge ports are unavailable');
 function wait_runtime(expected,label,seconds) {
     let stable=0;
@@ -73,13 +104,14 @@ function stage(plan) {
 }
 let failure;
 try {
-    // Test explicit enable overriding a pre-existing physical-device disable.
+    // Test disabling a pre-existing enabled physical device. The stable netifd
+    // bug for an already-disabled bridge member is rejected by the planner.
     // After rollback eth1 is a bridge member, not a WAN L3 interface: require
     // WAN/WAN6 removal and restored br-lan IPv6, not a derived member flag.
     assert(!u.get('network','fixture_wan_device'),'unexpected fixture device already exists');
     u.set('network','fixture_wan_device','device');
     u.set('network','fixture_wan_device','name','eth1');
-    u.set('network','fixture_wan_device','ipv6','0');
+    u.set('network','fixture_wan_device','ipv6','1');
     u.commit('network');
     rpc('network','reload',{});
     saved={};
@@ -90,10 +122,24 @@ try {
         stage(plan);
         call('apply',{rollback:true,timeout:20});
         let bridge=filter(plan.updates,item=>item.config=='network'&&item.section=='fixture_bridge')[0];
-        let expected={proto:plan.role=='main'?'static':plan.protocol,wanPresent:plan.role=='main',
+        let main=plan.role=='main',enabled=plan.ipv6==true;
+        let expected={proto:main?'static':plan.protocol,
+            interfaces:{wan:main,wan6:main?null:false,wan_6:false,lan6:false},clients:'',
             ports:port_signature(map(bridge.values.ports,p=>'/sys/class/net/br-lan/brif/'+p)),
             ipv6:type(plan.ipv6)=='bool'?(plan.ipv6?'0':'1'):baseline.ipv6};
-        if(plan.role=='main'&&type(plan.ipv6)=='bool')expected.wanIPv6=expected.ipv6;
+        if(main&&type(plan.ipv6)=='bool') {
+            expected.wanIPv6=expected.ipv6;
+            expected.interfaces.wan6={proto:'dhcpv6',autostart:enabled};
+            if(!enabled)expected.interfaces.wan6={...expected.interfaces.wan6,up:false,pending:false};
+            // No PPPoE server is provided: IPv6CP/PD negotiation is not tested.
+            if(enabled&&plan.protocol!='pppoe') {
+                expected.interfaces.wan6.device='eth1';
+                expected.clients='wan6:eth1';
+            }
+        } else if(enabled) {
+            expected.interfaces.lan6={proto:'dhcpv6',device:'br-lan',autostart:true};
+            expected.clients='lan6:br-lan';
+        }
         wait_runtime(expected,'applied',15);
         let live=cursor();
         assert(live.get('network','lan','proto')==(plan.role=='main'?'static':plan.protocol));
@@ -144,8 +190,9 @@ try {
     print('PASS: confirmed network change survives rollback timeout\n');
 } catch(e) { printf('NETWORK_TEST_FAILURE %J\n',e); failure=e; }
 {
-    for(let name,text in original)writefile('/etc/config/'+name,text);
     rpc('session','destroy',{ubus_rpc_session:sid});
+    // Destroying an unconfirmed session rolls back; restore cleanup files after it.
+    for(let name,text in original)writefile('/etc/config/'+name,text);
     rpc('uci','reload_config',{});
     c.disconnect();
 }
