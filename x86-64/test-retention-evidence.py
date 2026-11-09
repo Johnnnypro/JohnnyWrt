@@ -3,6 +3,7 @@ import ast
 import copy
 import hashlib
 import json
+import re
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -29,7 +30,7 @@ class EvidenceTest(unittest.TestCase):
                 self.assertTrue(sensitive)
                 return state['config']
             return ''
-        namespace = dict(hashlib=hashlib, json=json, image=Path(directory.name) / 'test.img', run=run)
+        namespace = dict(hashlib=hashlib, json=json, firewall_migration_hash=lambda *a: None, image=Path(directory.name) / 'test.img', run=run)
         exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), 'exec'), namespace)
         def snapshot(config, fields):
             state.update(config=config, fields=fields)
@@ -144,6 +145,67 @@ class EvidenceTest(unittest.TestCase):
                 with self.subTest(output=output), self.assertRaises(AssertionError):
                     namespace['verify_package_versions'](None)
 
+    def firewall_fixture(self):
+        source = Path(__file__).with_name('test-sysupgrade.py')
+        functions = [n for n in ast.parse(source.read_text()).body if isinstance(n, ast.FunctionDef)
+                     and n.name in ('assert_retained', 'firewall_migration_hash')]
+        self.assertEqual(len(functions), 2)
+        namespace = dict(hashlib=hashlib, re=re)
+        exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), 'exec'), namespace)
+        blocks = [("config include 'zerotier_%s'\n\toption type 'nftables'\n"
+                   "\toption path '/var/run/zerotier-one/_fw4/%s.nft'\n"
+                   "\toption position 'chain-pre'\n\toption chain '%s'\n\n") % (c, c, c)
+                  for c in ('input', 'srcnat', 'forward')]
+        script = "config include '%s'\n\toption type 'script'\n\toption path '%s'\n\toption fw4_compatible '1'\n\n"
+        blocks.append(script % ('meowx', '/etc/meowx/scripts/firewall_include.sh'))
+        own = script % ('johnny_zt_nat', '/usr/libexec/johnny-zt-nat')
+        rules = "# keep this comment\nconfig rule 'keep_first'\n\toption target 'DROP'\n\nconfig rule 'keep_second'\n\toption target 'ACCEPT'\n\n"
+        original = ''.join(blocks[:3]) + rules + own + blocks[3]
+        expected = rules + own + ''.join(blocks)
+        fields = {'firewall.' + name: hashlib.sha256(b'include').hexdigest()
+                  for name in ('zerotier_input', 'zerotier_srcnat', 'zerotier_forward', 'meowx', 'johnny_zt_nat')}
+        def snapshot(config, values=None):
+            values = fields if values is None else values
+            return {'files': {'/etc/config/firewall': hashlib.sha256(config.encode()).hexdigest()},
+                    'uci_fields': values, 'shadow_accounts': {}, 'pending_uci_keys': [],
+                    'firewall_after_vendor_defaults': namespace['firewall_migration_hash'](config.encode(), values)}
+        return namespace['assert_retained'], snapshot, original, expected, fields
+
+    def test_exact_vendor_include_move_keeps_custom_rules_and_original_baseline(self):
+        check, snapshot, original, expected, fields = self.firewall_fixture()
+        baseline = snapshot(original)
+        saved = copy.deepcopy(baseline)
+        current = snapshot(expected)
+        self.assertFalse(check(baseline, baseline))
+        check(baseline, current)
+        check(baseline, current)
+        self.assertEqual(baseline, saved)
+        for altered in (expected.replace('DROP', 'ACCEPT'), expected.replace('keep_first', 'changed'),
+                        expected.replace('# keep this comment', '# lost'), expected.replace('\t', '  '),
+                        expected.replace("'script'", "'nftables'"), expected.replace("'chain-pre'", "'chain-post'"),
+                        expected + "config include 'extra'\n\n"):
+            with self.subTest(altered=altered), self.assertRaises(AssertionError):
+                check(baseline, snapshot(altered))
+        # Reordering two named rules must fail even if the field dictionary is identical.
+        reordered = expected.replace('keep_first', 'TEMP').replace('keep_second', 'keep_first').replace('TEMP', 'keep_second')
+        with self.assertRaises(AssertionError):
+            check(baseline, snapshot(reordered))
+
+    def test_vendor_move_rejects_unknown_includes_and_nondefault_or_duplicate_blocks(self):
+        check, snapshot, original, expected, fields = self.firewall_fixture()
+        for extra in ("config include 'custom'\n\toption type 'nftables'\n\toption chain 'input'\n\toption position 'chain-pre'\n\n",
+                      "config include 'custom'\n\toption type 'script'\n\toption path '/custom.sh'\n\n"):
+            values = dict(fields, **{'firewall.custom': hashlib.sha256(b'include').hexdigest()})
+            baseline = snapshot(original + extra, values)
+            self.assertIsNone(baseline['firewall_after_vendor_defaults'])
+            with self.assertRaises(AssertionError):
+                check(baseline, snapshot(extra + expected, values))
+        for changed in (original.replace("'chain-pre'", "'chain-post'"), original.replace('/input.nft', '/custom.nft'),
+                        original.replace("\toption chain 'input'\n", "\toption chain 'input'\n\toption enabled '0'\n"),
+                        original + original, original.replace("config include 'meowx'", "config include 'missing'")):
+            with self.subTest(changed=changed):
+                self.assertIsNone(snapshot(changed)['firewall_after_vendor_defaults'])
+
     def test_evidence_has_file_and_field_hashes_without_secret_values(self):
         source = Path(__file__).with_name('test-sysupgrade.py')
         tree = ast.parse(source.read_text(encoding='utf-8'))
@@ -163,7 +225,7 @@ class EvidenceTest(unittest.TestCase):
                 return "meowx.config.api_secret='PRIVATE_PENDING'\n"
             return '1'
         with tempfile.TemporaryDirectory() as directory:
-            namespace = dict(hashlib=hashlib, json=json, image=Path(directory) / 'test.img', run=run)
+            namespace = dict(hashlib=hashlib, json=json, firewall_migration_hash=lambda *a: None, image=Path(directory) / 'test.img', run=run)
             exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), namespace)
             result = namespace['retention_snapshot'](None, ['/etc/config/meowx'], 'baseline')
             text = (Path(directory) / 'retention-baseline.json').read_text()

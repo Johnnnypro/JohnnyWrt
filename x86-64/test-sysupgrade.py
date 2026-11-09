@@ -7,6 +7,7 @@ import hashlib
 import http.server
 import json
 import os
+import re
 from pathlib import Path
 import selectors
 import shutil
@@ -117,6 +118,31 @@ def verify_package_versions(client):
     print('PASS: installed MeowX versions match the pinned manifest', flush=True)
 
 
+def firewall_migration_hash(config, fields):
+    # These vendor scripts recreate their exact default includes at EOF.
+    # Unknown includes could change rule precedence when crossed: reject them.
+    names = ('zerotier_input', 'zerotier_srcnat', 'zerotier_forward', 'meowx', 'johnny_zt_nat')
+    includes = {key for key, value in fields.items() if key.startswith('firewall.')
+                and value == hashlib.sha256(b'include').hexdigest()}
+    if includes != {'firewall.' + name for name in names}:
+        return None
+    blocks = [("config include 'zerotier_%s'\n\toption type 'nftables'\n"
+               "\toption path '/var/run/zerotier-one/_fw4/%s.nft'\n"
+               "\toption position 'chain-pre'\n\toption chain '%s'\n\n").encode() % (c, c, c)
+              for c in (b'input', b'srcnat', b'forward')]
+    script = b"config include '%s'\n\toption type 'script'\n\toption path '%s'\n\toption fw4_compatible '1'\n\n"
+    blocks.append(script % (b'meowx', b'/etc/meowx/scripts/firewall_include.sh'))
+    own = script % (b'johnny_zt_nat', b'/usr/libexec/johnny-zt-nat')
+    parts = re.split(b'(?m)(?=^(?:config |#))', config)
+    if any(parts.count(block) != 1 for block in blocks + [own]):
+        return None
+    positions = [config.index(block) for block in blocks]
+    if positions != sorted(positions) or config.index(own) > positions[-1]:
+        return None  # Preserve the ordering between the two script includes.
+    expected = b''.join(part for part in parts if part not in blocks) + b''.join(blocks)
+    return hashlib.sha256(expected).hexdigest()
+
+
 def retention_snapshot(client, paths, phase):
     sums = dict(line.split(maxsplit=1)[::-1] for line in run(client, 'sha256sum ' + ' '.join(paths)).splitlines())
     config = run(client, 'cat /etc/config/meowx', sensitive=True).encode()
@@ -142,6 +168,7 @@ def retention_snapshot(client, paths, phase):
         accounts[name] = hashlib.sha256(value.encode()).hexdigest()
     snapshot = {'files': sums, 'uci_fields': fields, 'shadow_accounts': accounts,
                 'meowx_before_defaults': prefixes,
+                'firewall_after_vendor_defaults': firewall_migration_hash(run(client, 'cat /etc/config/firewall', sensitive=True).encode(), fields),
                 'uptime': run(client, 'cut -d " " -f 1 /proc/uptime').strip(),
                 'file_metadata': run(client, 'ls -ln ' + ' '.join(paths)).splitlines(),
                 'pending_uci_keys': [line.partition('=')[0] for line in run(client, 'uci changes', sensitive=True).splitlines()
@@ -169,6 +196,11 @@ def assert_retained(baseline, current):
             expected_fields.update({'meowx.' + name + '.' + key: hashlib.sha256(b"'0'").hexdigest() for key in defaults[name]})
         migrated = True
         break
+    firewall = '/etc/config/firewall'
+    expected_firewall = baseline.get('firewall_after_vendor_defaults')
+    if firewall in changed and expected_firewall and current['files'].get(firewall) == expected_firewall:
+        changed.remove(firewall)
+        migrated = True
     assert not changed, 'Retained settings changed: ' + ', '.join(changed)
     assert current['uci_fields'] == expected_fields, 'Retained UCI fields changed beyond the known disabled vendor defaults'
     assert current['shadow_accounts'] == baseline['shadow_accounts'], 'Retained account hashes changed'
@@ -228,6 +260,13 @@ uci set network.lan.hostname='retained-test'
 uci set network.lan.ipv6='0'
 uci set dhcp.lan.ra='disabled'
 uci set dhcp.lan.dhcpv6='disabled'
+for name in first second; do
+    uci set firewall.upgrade_keep_$name='rule'
+    uci set firewall.upgrade_keep_$name.name="upgrade-keep-$name"
+    uci set firewall.upgrade_keep_$name.src='wan'
+    uci set firewall.upgrade_keep_$name.src_ip='192.0.2.123'
+    uci set firewall.upgrade_keep_$name.target='DROP'
+done
 uci commit
 mkdir -p /etc/meowx/subscriptions /etc/zerotier/networks.d
 printf 'rules:\n  - MATCH,DIRECT\n' > /etc/meowx/subscriptions/upgrade-test.yaml
@@ -275,7 +314,7 @@ test -s /etc/zerotier/identity.secret
         client = wait_ssh(boot)
         actual = retention_snapshot(client, retained, f'round-{round_number}-after')
         if assert_retained(baseline, actual):
-            print('PASS: only exact official disabled defaults were appended; original config bytes and fields are unchanged', flush=True)
+            print('PASS: only verified vendor default additions/include relocation occurred; original configuration is retained', flush=True)
         with client.open_sftp() as sftp:
             sftp.put(str(Path(__file__).with_name('test-update-metadata.sh')), '/tmp/test-update-metadata.sh')
             sftp.put(str(Path(__file__).with_name('test-ui-layout.sh')), '/tmp/test-ui-layout.sh')
