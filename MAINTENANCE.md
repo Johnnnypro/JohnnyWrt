@@ -418,3 +418,11 @@
 - 失败时 LAN up=true，DHCP 地址、默认路由和 DNS 指向同一有效测试上游；nft output 接受且没有 MeowX/Tailscale 过滤链。现有证据没有实际 DNS 回答、IPv6 路由/策略或原请求 syscall，不能证明 HTTPS 当时可用。独立复查指出最终写回 original/reload_config 后未再等待运行态，是明确的测试隔离缺口，但尚未证明它解释本次失败。
 - 先加测试专用诊断：在 MeowX 前、网络矩阵前后和 APK 前记录路由/规则/resolver/进程；对原 APK 请求做 strace，失败才导出 DNS A/AAAA、明确 IPv4 HTTPS 和完整事件日志，原 APK 退出码仍决定结果。保留一次性失败磁盘，不能发布该磁盘。没有改固件产品代码、重试 APK、重启服务或放宽功能断言。
 - 诊断函数不能改变测试退出状态：工具故障负例先失败后通过，串口输入/状态保护现 10 项（含原 APK 退出码 0/8 在诊断失败时仍保留）。同一原始 #14 镜像的完整本地诊断已退出 0，全部功能、网络矩阵及原 APK 请求通过；这没有复现云端失败，不能据此关闭问题。真实原因与修正必须另记，不把增加记录或偶然通过称为根因修复。
+
+### 26.11.10 最终测试清理的真实配置重载
+
+- 独立最小复现证实：恢复 original 后即使补旧 wait_runtime，也会在 DHCP 客户端仍带 hostname:johnny-confirm-test 时提前通过。改为观察真实 DHCP 参数后，旧 reload_config 路径等待 30 秒仍失败；因此不是单纯增加等待时间能解决。
+- 原固件 rpcd 为 2026.10.04~d99f703e-r1。原生 apply/rollback 直接发 service.event/config.change，不更新 /var/run/config.md5。真实探针记录：缓存 network MD5 为 5fb758a9bc8274ff07cf09819b374236，确认后 UCI 规范化 hash 为 feca8b5bfab1ee540a7cff059006d373，恢复原文件后又为 5fb758a9bc8274ff07cf09819b374236。reload_config 因而认为无需通知 network，守着旧运行状态。对应源码：https://github.com/openwrt/rpcd/blob/d99f703e4035d03fbcfbada3cb697db346c2b984/uci.c 。
+- 测试清理现先记录实际变化的配置名，全部原文件写回后，仅对这些配置发同原生 apply 的 config.change 事件；替换旧 reload_config，不重启服务或修改产品。确认阶段必须观察唯一 LAN/br-lan udhcpc 的测试 hostname，清理阶段必须观察原进程记录的 hostname、现有接口/IPv6状态、netifd租约/默认路由与resolver一致性；再逐字核对原文件及无待提交配置。后续原 APK 联网验证仍强制执行。
+- 六个额外状态判定（正确状态及五类不完整状态）在原 ucode 解释器执行；旧客户端/缺失/重复/错误设备/未就绪均拒绝。带真实 MD5 记录的同一最小复现已退出 0：清理经历旧客户端、down、pending、新客户端和up，约 3 秒恢复；源码串口输入 10 项通过，独立审查接受修正方向。完整入口验证仍在运行。
+- 云端诊断 #14（42684952510，3a48740）的完整启动/功能与原 APK 更新已通过，正在验证包迁移及升级。该次尚未包含上述清理修正，不能称为修正后全套通过，也不能据此认定 #13 的联网失败根因已明确。
