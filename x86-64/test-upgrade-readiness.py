@@ -1,6 +1,8 @@
 """A successful SSH login alone must not permit rebooting an unready overlay."""
 import ast
+import io
 from pathlib import Path
+import tempfile
 import types
 import unittest
 from unittest.mock import Mock
@@ -11,6 +13,39 @@ function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) 
 
 
 class ReadinessTest(unittest.TestCase):
+    def test_failure_diagnostics_keep_partial_output_and_original_error(self):
+        capture = next((node for node in tree.body if isinstance(node, ast.FunctionDef)
+                        and node.name == 'capture_failure_network'), None)
+        self.assertIsNotNone(capture, 'Failed upgrades need bounded network evidence')
+        with tempfile.TemporaryDirectory() as directory:
+            namespace = dict(image=Path(directory) / 'firmware.img.gz', print=Mock())
+            exec(compile(ast.Module(body=[capture], type_ignores=[]), str(source), 'exec'), namespace)
+            client = Mock()
+            client.exec_command.return_value = (None, io.BytesIO(b'partial network evidence'), io.BytesIO())
+            namespace['capture_failure_network'](client)
+            self.assertEqual((Path(directory) / 'upgrade-network-failure.log').read_text(), 'partial network evidence')
+            command = client.exec_command.call_args.args[0]
+            self.assertIn('timeout 40 sh', command)
+            self.assertNotIn('apk update', command)
+            self.assertEqual(client.exec_command.call_args.kwargs['timeout'], 45)
+            original = RuntimeError('original upgrade failure')
+            for failure in ('ssh', 'read', 'write'):
+                with self.subTest(failure=failure):
+                    client.exec_command.side_effect = OSError('SSH unavailable') if failure == 'ssh' else None
+                    output = Mock(read=Mock(side_effect=OSError('read failed'))) if failure == 'read' else io.BytesIO(b'partial')
+                    client.exec_command.return_value = (None, output, io.BytesIO())
+                    namespace['image'] = Path(directory) / 'missing' / 'firmware.img.gz'
+                    with self.assertRaises(RuntimeError) as raised:
+                        try:
+                            raise original
+                        finally:
+                            namespace['capture_failure_network'](client)
+                    self.assertIs(raised.exception, original)
+            client.get_transport.return_value = None
+            client.exec_command.reset_mock()
+            namespace['capture_failure_network'](client)
+            client.exec_command.assert_not_called()
+
     def test_old_and_current_fresh_install_console_names(self):
         condition = next(node.test for node in ast.walk(tree) if isinstance(node, ast.If)
                          and 'root@' in ast.unparse(node.test))

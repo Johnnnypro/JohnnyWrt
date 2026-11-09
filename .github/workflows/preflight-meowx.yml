@@ -63,10 +63,19 @@ jobs:
             diagnostic/boot-test.log
             diagnostic/smoke-failed.img.gz
             diagnostic/upgrade-test.log
+            diagnostic/upgrade-network-failure.log
+            diagnostic/upgrade-test-screen.ppm
+            diagnostic/upgrade-failed.img.gz
             diagnostic/retention-*.json
             vendor-migration/upgrade-test.log
+            vendor-migration/upgrade-network-failure.log
+            vendor-migration/upgrade-test-screen.ppm
+            vendor-migration/upgrade-failed.img.gz
             vendor-migration/retention-*.json
             mesh-migration/upgrade-test.log
+            mesh-migration/upgrade-network-failure.log
+            mesh-migration/upgrade-test-screen.ppm
+            mesh-migration/upgrade-failed.img.gz
             mesh-migration/retention-*.json
           if-no-files-found: ignore
           retention-days: 7

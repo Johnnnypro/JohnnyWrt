@@ -72,6 +72,35 @@ def run(client, command, sensitive=False):
     return result
 
 
+def capture_failure_network(client):
+    # Disposable guest only. Preserve the original failure even if collection fails.
+    try:
+        transport = client.get_transport() if client is not None else None
+        if transport is None or not transport.is_active():
+            return
+        _, out, err = client.exec_command("""timeout 40 sh <<'DIAGNOSTIC' 2>&1
+date -u
+ip -4 addr; ip -6 addr
+ip -4 rule; ip -6 rule
+ip -4 route show table all; ip -6 route show table all
+timeout 3 ubus call network.interface dump
+cat /etc/resolv.conf /tmp/resolv.conf.d/resolv.conf.auto
+nft list ruleset
+logread -l 100 | grep -E 'netifd|dnsmasq|udhcpc|odhcp6c'
+for host in downloads.immortalwrt.org dl.miaomiaowux.com; do
+    timeout 4 nslookup -type=A "$host"
+    timeout 4 nslookup -type=AAAA "$host"
+done
+for family in 4 6; do
+    curl -"$family" -v --connect-timeout 3 --max-time 7 https://downloads.immortalwrt.org/releases/25.12.2/targets/x86/64/packages/packages.adb -o /dev/null
+done
+DIAGNOSTIC""", timeout=45)
+        evidence = out.read() + err.read()
+        (image.parent / 'upgrade-network-failure.log').write_bytes(evidence)
+    except Exception as error:
+        print(f'Could not capture upgrade network evidence: {error}', flush=True)
+
+
 def wait_ssh(previous_boot=None):
     started = time.monotonic()
     # TCG must write a 1 GiB image before booting; 240s was marginal in CI.
@@ -403,6 +432,7 @@ fw4 check
     completed = True
 finally:
     if not completed and qemu.poll() is None:
+        capture_failure_network(locals().get('client'))
         # Capture BIOS/GRUB errors that are visible only on the VGA console.
         try:
             with socket.socket(socket.AF_UNIX) as monitor:
