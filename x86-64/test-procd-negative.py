@@ -27,7 +27,7 @@ except SystemExit as exc:
     assert str(exc) == 'Boot checks failed or timed out; see boot-test.log', str(exc)
     failed = True
 assert failed, 'Original package unexpectedly survived the early HUP'
-log = (image.parent / 'boot-test.log').read_text().replace('\r', '')
+log = (image.parent / 'boot-test.log').read_bytes().decode('utf-8', errors='replace').replace('\r', '')
 states = re.findall(r'\nPROCD_SIGNAL_STATE_BEGIN\n(.*?)\nPROCD_SIGNAL_STATE_END\n', log, re.S)
 assert len(states) == 1, 'The native exit state is missing'
 instance = json.loads(states[0])['johnny-signal-test']['instances']['main']

@@ -13,6 +13,27 @@ root = Path(__file__).parent
 
 
 class SmokeInputTest(unittest.TestCase):
+    def test_negative_signal_evidence_accepts_serial_noise_but_not_broken_proof(self):
+        source = (root / 'test-procd-negative.py').read_text()
+        parser = compile(source[source.index("log = (image.parent / 'boot-test.log')"):], 'negative-log-parser', 'exec')
+        state = {'johnny-signal-test': {'instances': {'main': {'running': False, 'exit_code': 129}}}}
+        proof = ('\nPROCD_SIGNAL_STATE_BEGIN\n' + json.dumps(state) + '\nPROCD_SIGNAL_STATE_END\n'
+                 'Missing expected file: /tmp/johnny-signal-output/started\n'
+                 'SigBlk:\t0000000000000000\nShdPnd:\t0000000000000001\n').encode()
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / 'firmware.img.gz'
+            log = image.parent / 'boot-test.log'
+            log.write_bytes(b'console echo \xef\n' + proof)
+            namespace = dict(image=image, json=json, re=re, print=lambda *args: None)
+            exec(parser, namespace)
+            for broken in (proof.replace(b'129', b'0'), proof.replace(b'129', b'\xef129'),
+                           proof.replace(b'PROCD_SIGNAL_STATE_END', b'PROCD_SIGNAL_STATE_\xefEND'),
+                           proof.replace(b'0000000000000001', b'0000000000000000')):
+                with self.subTest(proof=broken):
+                    log.write_bytes(b'console echo \xef\n' + broken)
+                    with self.assertRaises((AssertionError, ValueError)):
+                        exec(parser, namespace)
+
     def test_dns_evidence_works_without_an_external_timeout_applet(self):
         source = (root / 'test-johnny-nat-diagnostics.sh').read_text()
         probe = re.search(r'for host in downloads\.immortalwrt\.org .*?\n            done', source, re.S).group(0)

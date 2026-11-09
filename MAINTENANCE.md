@@ -472,3 +472,9 @@
 - 冻结旧路径的专项42709369439成功，ZIP384b546cb73f0fb52430d1b85564d141b57a092f72f7a0c31be6b65f385b1c5d已核对；pcap显示首次目标域名A/AAAA成功后下载全部八索引。未复现上次失败，不能据此宣称已定位或修复首次单索引问题。
 - 就绪缺口单独修正：这些DHCP-LAN升级fixture必须pending=false、有IPv4租约/默认路由、LAN上游DNS写入resolv、原生dnsmasq实例全部running，且localhost A真实应答，才允许继续。八类未就绪及永久DNS失败在旧检查器共九次负例失败，修正后readiness13项/全部Python42项通过；独立审查无阻断。本地原#14的初启/普通重启/一次原APK已通过；未访问公网域名作为就绪探测，不重试APK。
 - 升级VM同时保存QEMU被动网络pcap（每包最多512字节），补齐失败请求当时的DNS/TCP证据；只采一次性测试VM，不采实机或明文私有配置。完整新就绪检查的本地/云端升级链须完成后才重新构建，最终r2固件仍须全部门禁。
+
+### 26.11.10 负例日志的串口编码
+
+- 42710771189的boot任务在原r1负例已经产生exit129/正确HUP证据后，由test-procd-negative.py全文件read_text抛UnicodeDecodeError而失败；修复包安装/完整smoke未执行。ZIP7935afbb2aaf5afb3d637843c35aa1b2f8c78e1be8967954e6453f98ad200c87已核对。0xef出现在network-plan的控制台回显，位置458393；真正传入文件的SHA检查全部成功，原生故障JSON位于549794之后且完整。不能把这次结果称为修复版运行失败或整轮通过。
+- 仅日志读取改为显式UTF-8替换无效字节；原始字节日志仍保存，JSON/唯一状态块/exit129/running=false/未启动payload/信号屏蔽及pending断言均不变。新增含坏字节回显的测试先触发相同UnicodeDecodeError，再通过；非129、JSON值损坏、标记损坏、pending错误仍全部拒绝。保存的实际失败日志用新解析段重放通过，全部43项Python检查通过。
+- 这次只是离线结果解析修正，不改变VM、补丁包、功能或升级测试。当前带新DNS就绪检查的本地legacy两轮已成功，Mesh链和云端两条升级仍在执行；最终构建继续等待完整验收。
