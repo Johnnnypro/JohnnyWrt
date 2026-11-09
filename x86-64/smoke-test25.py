@@ -56,6 +56,11 @@ test "$(uci get firewall.johnny_zerotier.masq)" = 0
 test "$(uci get firewall.zerotier_to_lan.dest)" = lan
 test "$(uci get firewall.lan_to_zerotier.dest)" = zerotier
 test -x /usr/bin/meowx-core
+test -x /usr/sbin/tailscale
+test -x /usr/sbin/tailscaled
+/usr/sbin/tailscale version
+/etc/init.d/tailscale running
+/usr/sbin/tailscale status --json | jsonfilter -e '@.BackendState' | grep -q .
 test -s /etc/meowx/run/ui/index.html
 test "$(uci get meowx.mixin.ui_path)" = ui
 test -z "$(uci -q get meowx.mixin.ui_name)"

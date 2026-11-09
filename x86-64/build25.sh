@@ -5,7 +5,7 @@ source shell/apk-custom-packages.sh
 if [ "${CUSTOM_BYPASS:-0}" = "1" ]; then
   set -e
   CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-zerotier-zh-cn"
-  CUSTOM_PACKAGES="$CUSTOM_PACKAGES meowx-core meowx luci-app-meowx luci-i18n-meowx-zh-cn"
+  CUSTOM_PACKAGES="$CUSTOM_PACKAGES meowx-core meowx luci-app-meowx luci-i18n-meowx-zh-cn tailscale"
   CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-theme-aurora"
   CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-mod-rpc luci-lib-ipkg luci-compat libuci-lua ucode-mod-socket ip-full"
 fi

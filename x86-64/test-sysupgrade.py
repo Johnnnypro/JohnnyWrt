@@ -26,6 +26,7 @@ parser.add_argument('--machine', choices=('pc', 'q35'), default='pc')
 parser.add_argument('--accel', choices=('tcg', 'kvm'), default='tcg')
 parser.add_argument('--reboot-only', action='store_true')
 parser.add_argument('--package-migration-only', action='store_true')
+parser.add_argument('--with-meowx-mesh', action='store_true')
 args = parser.parse_args()
 base, image = args.base.resolve(), args.image.resolve()
 disk = image.parent / 'upgrade-test.img'
@@ -116,6 +117,23 @@ def verify_package_versions(client):
     actual = set(run(client, 'apk info -e -v ' + ' '.join(expected)).splitlines())
     assert actual == {name + '-' + version for name, version in expected.items()}, 'Installed MeowX versions differ: ' + repr(actual)
     print('PASS: installed MeowX versions match the pinned manifest', flush=True)
+
+
+def verify_mesh_dependency(client):
+    run(client, r'''set -e
+apk info -e tailscale >/dev/null
+test -x /usr/sbin/tailscale
+test -x /usr/sbin/tailscaled
+/etc/init.d/tailscale enabled
+/etc/init.d/tailscale running
+case "$(/usr/sbin/tailscale status --json | jsonfilter -e '@.BackendState')" in
+    Stopped|NeedsLogin) ;; *) exit 1;;
+esac
+test "$(/usr/sbin/tailscale debug prefs | jsonfilter -e '@.WantRunning')" = false
+test "$(uci get tailscale.settings.state_file)" = /etc/tailscale/tailscaled.state
+jsonfilter -i /etc/tailscale/tailscaled.state -e '@._machinekey' | grep -q .
+''', sensitive=True)
+    print('PASS: native Mesh dependency, saved identity and enabled service are present', flush=True)
 
 
 def firewall_migration_hashes(config, fields):
@@ -255,6 +273,22 @@ try:
         client.close()
         completed = True
         sys.exit(0)
+    if args.with_meowx_mesh:
+        print(run(client, 'apk update && apk upgrade meowx meowx-core luci-app-meowx luci-i18n-meowx-zh-cn && apk add tailscale'), flush=True)
+        verify_package_versions(client)
+        run(client, r'''set -e
+/etc/init.d/tailscale enable
+/etc/init.d/tailscale start
+for attempt in $(seq 1 30); do
+    /usr/sbin/tailscale status --json >/tmp/tailscale-status.json 2>/dev/null && break
+    sleep 1
+done
+# Generate a disposable native identity without contacting any real controller.
+if /usr/sbin/tailscale up --login-server=http://127.0.0.1:9 --accept-dns=false --accept-routes=false --netfilter-mode=off --timeout=3s >/tmp/tailscale-up.log 2>&1; then exit 1; fi
+/usr/sbin/tailscale down
+sync
+''')
+        verify_mesh_dependency(client)
     run(client, r'''set -e
 /etc/init.d/zerotier stop
 uci set zerotier.global.enabled='0'
@@ -281,6 +315,11 @@ test -s /etc/zerotier/identity.secret
                 '/etc/zerotier/identity.secret',
                 '/etc/zerotier/networks.d/0123456789abcdef.local.conf',
                 '/etc/meowx/subscriptions/upgrade-test.yaml']
+    if args.with_meowx_mesh:
+        retained += ['/etc/config/tailscale', '/etc/tailscale/tailscaled.state']
+        backup_list = run(client, 'sysupgrade -l').splitlines()
+        for path in retained:
+            assert path in backup_list, f'Not preserved by sysupgrade: {path}'
     baseline = retention_snapshot(client, retained, 'baseline')
     if args.package_migration_only:
         print(run(client, 'apk update && apk upgrade meowx meowx-core luci-app-meowx luci-i18n-meowx-zh-cn'), flush=True)
@@ -290,6 +329,8 @@ test -s /etc/zerotier/identity.secret
         run(client, "(trap '' HUP; sleep 2; reboot) >/tmp/migration-reboot.log 2>&1 </dev/null &")
         client.close()
         client = wait_ssh(boot)
+        if args.with_meowx_mesh:
+            verify_mesh_dependency(client)
         assert_retained(baseline, retention_snapshot(client, retained, 'after-reboot'))
         verify_package_versions(client)
         print('PASS: original settings preserved after official MeowX package migration and reboot', flush=True)
@@ -315,6 +356,8 @@ test -s /etc/zerotier/identity.secret
         run(client, "(trap '' HUP; sleep 2; sysupgrade /tmp/upgrade.img.gz) >/tmp/upgrade.log 2>&1 </dev/null &")
         client.close()
         client = wait_ssh(boot)
+        if args.with_meowx_mesh:
+            verify_mesh_dependency(client)
         actual = retention_snapshot(client, retained, f'round-{round_number}-after')
         if assert_retained(baseline, actual):
             print('PASS: only verified vendor default additions/include relocation occurred; original configuration is retained', flush=True)

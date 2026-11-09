@@ -24,3 +24,5 @@ Files: build workflow, build25.sh, metadata tests, dashboard/updater display, pr
 3. Validate public assets/metadata/checksums and retained configuration evidence, and report exact supported upgrade path and remaining hardware limits. Record final result in MAINTENANCE.md.
 
 Review Focus: overlooked IPv6 acquisition/RA and PPPoE duplication; custom lan6 handling; untouched saved IPv6 settings; old updater strict tag/metadata parsing; source-vs-final-image verification; missing service controls or mobile overflow.
+
+Confirmed upgrade dependency (2026-11-10): the deployed MeowX Mesh uses a separately installed official Tailscale package, absent from the #14 image. Include that package in the new image and manifest gate. Before building, verify a disposable native machine identity and enabled daemon survive reboot. The final #14-to-new-to-new chain must preserve the same original Tailscale config/state hashes and validate the service without restarting or re-enabling it in assertions. No real control server, account or router flashing is involved.

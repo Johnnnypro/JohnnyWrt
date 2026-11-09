@@ -7,7 +7,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-22.04
-    timeout-minutes: 40
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v6
       - name: Run all source checks before booting
@@ -48,6 +48,12 @@ jobs:
         run: |
           python3 x86-64/test-sysupgrade.py previous-release/base.img diagnostic/firmware.img.gz
           echo 'f5bcd15b8677364ef84ae0c544bf0ff4f9c9c7645c1f723724239884d670eb58  diagnostic/firmware.img.gz' | sha256sum -c -
+      - name: Verify installed Mesh identity survives a native reboot
+        run: |
+          mkdir mesh-migration
+          cp diagnostic/firmware.img.gz mesh-migration/firmware.img.gz
+          gzip -dc diagnostic/firmware.img.gz > mesh-migration/base.img
+          python3 x86-64/test-sysupgrade.py mesh-migration/base.img mesh-migration/firmware.img.gz --package-migration-only --with-meowx-mesh
       - name: Save read-only verification evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -59,5 +65,7 @@ jobs:
             diagnostic/retention-*.json
             vendor-migration/upgrade-test.log
             vendor-migration/retention-*.json
+            mesh-migration/upgrade-test.log
+            mesh-migration/retention-*.json
           if-no-files-found: ignore
           retention-days: 7

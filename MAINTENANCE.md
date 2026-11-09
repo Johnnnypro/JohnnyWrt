@@ -401,3 +401,12 @@
 - 现只从唯一原始 baseline 预计算两个明确目标：meowx_only、zerotier_then_meowx；不枚举其他子集或排列。原五 include、完整块各唯一、脚本相对顺序、原其他字节/规则顺序与全部字段约束不变。局部→完整→完整连续迁移及单个 ZeroTier 块乱移负例先失败后通过；13 项 retention 回归、完整 36 项 Python 通过，独立审查通过。
 - 用捕获的原始 firewall 字节（hash 与各运行原 baseline 匹配）复核归档 CI 包更新证据及本地四轮升级的全部 before/after JSON，新检查器全部通过；没有改写原证据或刷新 baseline。两条从原旧版/#14 出发、含自定义规则的全新官方包升级/重启验证仍在执行，完成后再记录。产品代码与已通过云端功能检查的版本相同。
 - 实机 MeowX 已是固定的 0.3.4/core 0.5.0；只读保留清单包含 Mesh 配置、NAT 文件和 Tailscale 身份。实机额外的 meowx_mesh_snat 是 srcnat/chain-post 引用。以相同六 include 组合构造一次性样例，四个有效 nft 引用参与时，ROM 脚本迁移前后 fw4 print 均为 `43fb8ad084bfee68a6cf3b6b61e701a85f4b3f72086a1d29ce91e0b483de6c44`，规则校验通过。该补充证明未扩展通用测试例外，也不代表已实测两地业务或执行实机升级。
+- 上述含命名规则的原旧版与 #14 两条官方包迁移/重启检查均完成，组合进程退出码 0；四包精确版本、原 baseline 与 canary 规则保留通过。
+
+### 26.11.10 实机已安装的 Mesh 依赖
+
+- 只读核对实机包归属及 MeowX mesh_cli.uc：组网使用官方 tailscale 提供的 tailscale/tailscaled；当前实机 1.104.1-r1 已启用并运行，state_file 为 /etc/tailscale/tailscaled.state。MeowX 包未声明此依赖，旧 #14 manifest 与构建清单均未内置，因此只保留身份文件无法保证升级后程序仍存在。
+- 最小产品修正是在构建包清单加入 tailscale，沿用官方签名源、原生 init 和 keep.d；不替换 daemon、不改变用户配置、不调用真实主控。manifest 和完整启动测试新增程序/原生 daemon 检查。
+- 最新 #14 升级 fixture 增加 --with-meowx-mesh：先安装当前官方包，使用仅指向 localhost:9 的失败登录生成一次性原生 machine identity，再 down；保留配置与完整状态文件原始 hash、备份清单和原生启用/运行状态。后续断言不重建身份，不 enable/start 掩盖启动失败。普通重启与两轮最终镜像升级仍须通过；此处不声称真实账户已登录或跨站点通信已验证。
+- 本地 #14 的原生身份准备、官方包检查及普通重启已退出 0：Tailscale 配置/完整状态文件与同一原始 baseline 保持逐字 hash 一致，启用、运行和本地 CLI 均通过。源码 110 项 Node、36 项 Python 与静态检查通过，官方 MeowX 四包版本再次核对一致；独立代码复查无阻断项。云端预检新增这条 Mesh 重启检查，总时限随新增步骤由 40 改为 50 分钟，原有各阶段超时和全部断言不变。
+- 加入依赖后的当前源码在原 #14 一次性副本完成同一 CI 串口完整检查，进程退出码 0：Tailscale 二进制/原生 daemon、15 组网络应用/回滚、MeowX 动作/订阅、离线规则、内核模块源、页面、ZeroTier 重绑定与限定回包 NAT 全部通过。原压缩镜像仍使用固定 #14 SHA256；接下来必须完成最新源码云端预检及最终新镜像验收。

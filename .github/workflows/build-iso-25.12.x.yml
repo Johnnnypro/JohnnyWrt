@@ -136,7 +136,7 @@ jobs:
           manifest=$(find bin/targets/x86/64 -maxdepth 1 -name '*.manifest' -print -quit)
           test -n "$manifest"
           python3 x86-64/check-meowx-versions.py "$manifest"
-          for package in meowx-core meowx luci-app-meowx luci-i18n-meowx-zh-cn zerotier luci-app-zerotier luci-theme-aurora luci-mod-rpc luci-lib-ipkg luci-compat libuci-lua ucode-mod-socket ip-full; do
+          for package in meowx-core meowx luci-app-meowx luci-i18n-meowx-zh-cn tailscale zerotier luci-app-zerotier luci-theme-aurora luci-mod-rpc luci-lib-ipkg luci-compat libuci-lua ucode-mod-socket ip-full; do
             grep -E "^${package} - " "$manifest" || exit 1
           done
           if grep -E '^(luci-app-store|quickstart|luci-app-quickstart|luci-i18n-quickstart-[^ ]+) - ' "$manifest"; then exit 1; fi
@@ -163,7 +163,7 @@ jobs:
           gzip -dc latest-release/*.img.gz > latest-release/base.img
           image=$(find bin/targets/x86/64 -maxdepth 1 -name '*squashfs-combined-efi.img.gz' -print -quit)
           cp "$image" latest-upgrade/firmware.img.gz
-          python3 x86-64/test-sysupgrade.py latest-release/base.img latest-upgrade/firmware.img.gz
+          python3 x86-64/test-sysupgrade.py latest-release/base.img latest-upgrade/firmware.img.gz --with-meowx-mesh
 
       - name: Build ISO installer from verified firmware
         run: |
@@ -249,6 +249,7 @@ jobs:
           - SSH 或本地控制台输入 quickstart，使用英文三项菜单：查看地址、设置管理 IPv4/掩码/网关/DNS、退出。掩码默认 255.255.255.0、DNS 默认 223.5.5.5，直接回车采用；DHCP 模式仍可在网页设置。保存前显示预览并确认；应用会中断连接，按提示使用新地址重连，本菜单确认后不自动回滚。
           - 在线更新来源为 Johnnnypro/JohnnyWrt；旧仓库的已安装固件需先手动上传本版并保留配置，以后从新仓库在线更新。
           - 首页移除 ZeroTier 卡片，左侧保留完整 MeowX，右侧排列网络流量与接口；ZeroTier 服务、身份、配置与菜单保留。
+          - 内置 MeowX 组网需要的 Tailscale，避免保留配置升级后只有身份文件却缺少程序。最新 #14 安装当前组网依赖后，已验证两轮升级保留本机测试身份和原生服务；不代表真实主控授权或两地连接已经验证。
           - 网络向导新增 IPv6 开关：主路由获取 WAN IPv6 并向 LAN 分配；旁路由仅为本机获取上级地址。同模式下未切换开关保留现有设置；主／旁路由角色切换时按当前开关状态生成预览，应用支持自动回滚。
           - 当前稳定系统存在特殊网口转换限制：自定义物理网口已设置 IPv6=0 且仍在 LAN 桥内时，向导不允许将它改为 WAN 并保持 IPv6 关闭，会在写入前提示使用高级网络设置。普通网口与现有 WAN 的 IPv6 开关不受此限制；真实运营商 DHCPv6/PD、PPPoE 协商需部署后验证。
           - 对外版本采用日期编号；内部标签和 firmware.json.version 保持旧更新器兼容格式，底层仍为 ImmortalWrt $VERSION。固定升级文件名及 32/1024 MiB 分区布局不变。
