@@ -1,4 +1,4 @@
-name: Verify MeowX update without compiling
+name: Verify current source without compiling
 on:
   workflow_dispatch:
 permissions:
@@ -19,6 +19,7 @@ jobs:
           python3 x86-64/test-upgrade-readiness.py
           python3 x86-64/test-retention-evidence.py
           python3 x86-64/test-smoke-input.py
+          python3 x86-64/test-release-version.py
           python3 x86-64/test-meowx-versions.py
           node x86-64/preflight.js
           bash -n x86-64/build25.sh
@@ -27,9 +28,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir diagnostic previous-release
-          gh release download Johnnywrt-ISO-25.12.2-1793253531 --repo Johnnnypro/JohnnyWrt --pattern Johnnywrt-x86_64-squashfs-combined-efi.img.gz --dir diagnostic
+          gh release download Johnnywrt-ISO-25.12.2-1793414110 --repo Johnnnypro/JohnnyWrt --pattern Johnnywrt-x86_64-squashfs-combined-efi.img.gz --dir diagnostic
           mv diagnostic/*.img.gz diagnostic/firmware.img.gz
-          echo 'e62255d81a5a78094b5ba8d47f92f5fe3760857038a1ff81410f0c6e2df05799  diagnostic/firmware.img.gz' | sha256sum -c -
+          echo 'f5bcd15b8677364ef84ae0c544bf0ff4f9c9c7645c1f723724239884d670eb58  diagnostic/firmware.img.gz' | sha256sum -c -
           gh release download Johnnywrt-ISO-25.12.2-1793177592 --repo Johnnnnnnnyx/ImmortalWrt-ImageBuilder --pattern Johnnywrt-x86_64-squashfs-combined-efi.img.gz --dir previous-release
           echo 'aaf4f7cc25d026f5e24d38affdfcf589c6f1f50ac8883c88ffd48edef9df1956  previous-release/Johnnywrt-x86_64-squashfs-combined-efi.img.gz' | sha256sum -c -
           gzip -dc previous-release/*.img.gz > previous-release/base.img
@@ -41,7 +42,7 @@ jobs:
       - name: Verify the saved release upgrade baseline
         run: |
           python3 x86-64/test-sysupgrade.py previous-release/base.img diagnostic/firmware.img.gz
-          echo 'e62255d81a5a78094b5ba8d47f92f5fe3760857038a1ff81410f0c6e2df05799  diagnostic/firmware.img.gz' | sha256sum -c -
+          echo 'f5bcd15b8677364ef84ae0c544bf0ff4f9c9c7645c1f723724239884d670eb58  diagnostic/firmware.img.gz' | sha256sum -c -
       - name: Save read-only verification evidence
         if: always()
         uses: actions/upload-artifact@v4

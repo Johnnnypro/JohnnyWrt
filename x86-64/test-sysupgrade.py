@@ -216,14 +216,15 @@ test -s /etc/zerotier/identity.secret
                 '/etc/zerotier/networks.d/0123456789abcdef.local.conf',
                 '/etc/meowx/subscriptions/upgrade-test.yaml']
     baseline = retention_snapshot(client, retained, 'baseline')
+    with client.open_sftp() as sftp:
+        sftp.put(str(Path(__file__).with_name('test-update-metadata.sh')), '/tmp/test-update-metadata.sh')
     # Round 1 validates old -> new; round 2 validates the new upgrade baseline.
     for round_number in (1, 2):
         backup_list = run(client, 'sysupgrade -l').splitlines()
         for path in retained:
             assert path in backup_list, f'Not preserved by sysupgrade: {path}'
         run(client, f'curl -fsS http://10.0.2.2:33380/{image.name} -o /tmp/upgrade.img.gz')
-        if round_number == 2:
-            run(client, 'sh /tmp/test-update-metadata.sh /usr/libexec/johnny-update /tmp/upgrade.img.gz')
+        run(client, 'sh /tmp/test-update-metadata.sh /usr/libexec/johnny-update /tmp/upgrade.img.gz')
         run(client, 'sysupgrade -T /tmp/upgrade.img.gz')
         before = retention_snapshot(client, retained, f'round-{round_number}-before')
         assert_retained(baseline, before)

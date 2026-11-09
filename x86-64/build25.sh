@@ -84,6 +84,7 @@ if [ "${CUSTOM_BYPASS:-0}" = "1" ]; then
   cp custom25/johnny-fix-distfeeds custom25/johnny-zt-nat custom25/johnny-ssh-qos files/usr/libexec/
   printf '%s\n' "${BUILD_ID:-development}" > files/etc/johnnywrt-build
   printf '%s\n' "${RELEASE_TAG:-development}" > files/etc/johnnywrt-release
+  printf '%s\n' "${RELEASE_VERSION:-development}" > files/etc/johnnywrt-version
   cp custom25/johnny-update custom25/johnny-meow-action files/usr/libexec/
   cp custom25/johnny-ui-layout.uc files/usr/libexec/
   cp custom25/johnny-dashboard-defaults.uc custom25/johnny-dashboard-defaults.js custom25/johnny-dashboard-worker.js files/usr/libexec/

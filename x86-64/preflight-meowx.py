@@ -14,6 +14,10 @@ import textwrap
 
 root = Path(__file__).parent
 files = {
+    'johnny-home.js': 'www/luci-static/resources/view/johnny/home.js',
+    'johnny-network.js': 'www/luci-static/resources/view/johnny/network.js',
+    'johnny-model.js': 'www/luci-static/resources/johnny/model.js',
+    'johnny.css': 'www/luci-static/resources/johnny/johnny.css',
     'johnny-dashboard.uc': 'usr/share/rpcd/ucode/luci.johnny',
     'johnny-dashboard-acl.json': 'usr/share/rpcd/acl.d/johnny.json',
     'johnny-ui-layout.uc': 'usr/libexec/johnny-ui-layout.uc',

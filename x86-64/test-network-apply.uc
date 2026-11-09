@@ -47,11 +47,27 @@ try {
             assert(live.get('network','wan','proto')==plan.protocol);
             assert(system('fw4 check >/dev/null 2>&1')==0);
         }
+        if (type(plan.ipv6)=='bool') {
+            let enabled=plan.ipv6, main=plan.role=='main';
+            assert(live.get('network','lan','ipv6')==(enabled?'1':'0'));
+            assert(trim(readfile('/proc/sys/net/ipv6/conf/br-lan/disable_ipv6'))==(enabled?'0':'1'));
+            assert(live.get('dhcp','lan','ra')==(enabled&&main?'server':'disabled'));
+            assert(live.get('dhcp','lan','dhcpv6')==(enabled&&main?'server':'disabled'));
+            if (main) {
+                assert(live.get('network','wan6','device')=='@wan');
+                assert(live.get('network','wan6','auto')==(enabled?'1':'0'));
+                assert(live.get('network','wan','ipv6')==(enabled?'1':'0'));
+            } else if (enabled) {
+                assert(live.get('network','lan6','device')=='@lan');
+                assert(live.get('network','lan6','reqprefix')=='no');
+            } else assert(!live.get('network','lan6'));
+            assert(system('fw4 check >/dev/null 2>&1')==0);
+        }
         // Deliberately do not confirm: native rpcd must restore the exact files.
         sleep(9000);
         for(let name,text in saved) assert(readfile('/etc/config/'+name)==text,'rollback changed '+name);
         for(let name in ['network','dhcp','firewall'])call('revert',{config:name});
-        printf('PASS: %s/%s native apply and automatic rollback\n',plan.role,plan.protocol);
+        printf('PASS: %s/%s IPv6=%J native apply and automatic rollback\n',plan.role,plan.protocol,plan.ipv6);
     }
     call('set',{config:'network',section:'lan',values:{hostname:'johnny-confirm-test'}});
     call('apply',{rollback:true,timeout:6});

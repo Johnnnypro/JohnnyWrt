@@ -110,6 +110,7 @@ function status() {
     let total = 0; for (let n in cpu) total += n;
     return { time: time(), pending_network: pending('network') || pending('dhcp') || pending('firewall'),
         system: { hostname: board.hostname, model: board.model,
+        display_version: trim(readfile('/rom/etc/johnnywrt-version') || ''),
         release: board.release?.description, uptime: info.uptime, memory: info.memory, load: info.load,
         cpu: { total, idle: (cpu[3] || 0) + (cpu[4] || 0) },
         storage: trim(command('df -Pk /overlay | tail -1') || '') }, interfaces,

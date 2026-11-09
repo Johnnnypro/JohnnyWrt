@@ -155,12 +155,14 @@ test('ZeroTier distinguishes disabled managed addressing while retaining manual 
     assert(t.calls.some(c=>c[0]==='probe'));
     assert(!t.calls.some(c=>c[0]==='join'));
 });
-test('homepage does not label controller-only addresses as automatically applied',async()=>{
+test('homepage retains MeowX controls and interface state without a ZeroTier service card',async()=>{
     const t=setup('johnny-home.js');
-    t.setStatus({zerotier:{running:true,node:{online:true},networks:[{id:'0123456789abcdef',status:'OK',allowManaged:false,assignedAddresses:['10.0.0.2/24']}],lan:{}}});
+    t.setStatus({meowx:{running:true},interfaces:[{name:'zt123',state:'unknown'}],zerotier:{running:true,node:{online:true},networks:[{id:'0123456789abcdef',portDeviceName:'zt123',status:'OK',allowManaged:false}],lan:{}}});
     await t.view.render(await t.view.load());
-    assert(t.nodes.some(n=>n.textContent==='控制器分配 IP（自动应用关闭）'));
-    assert(!t.nodes.some(n=>n.textContent==='已有地址与路由自动获取，无需重复填写。'));
+    assert(!t.nodes.some(n=>n.tag==='h3'&&n.textContent==='ZeroTier'));
+    assert(t.nodes.some(n=>n.textContent==='自动地址与路由未启用'));
+    for(const label of ['打开面板','重载','重启'])assert(t.button(label));
+    assert(t.nodes.some(n=>n.href==='admin/services/meowx'&&n.textContent==='服务设置'));
 });
 test('network wizard previews bypass settings without applying and preserves fields on back',async()=>{
     const t=setup('johnny-network.js');
@@ -330,4 +332,29 @@ test('subscription switching is serialized and reports failure',async()=>{
     assert.equal(count,1);
     finish({success:false,error:'invalid subscription'});await Promise.all([first,second]);
     assert(t.notifications.some(s=>s.includes('invalid subscription')));
+});
+
+test('IPv6 switch previews only on explicit change and remains readonly for observers',async()=>{
+    for(const readonly of [false,true]){
+        const t=setup('johnny-network.js',readonly);
+        t.setStatus({interfaces:[{name:'eth0',physical:true},{name:'eth1',physical:true}],zerotier:{lan:{}}});
+        t.uci.get=(c,s,k)=>({'network.lan.proto':'dhcp','network.lan.ipv6':'0'})[[c,s,k].join('.')];
+        await t.view.render(await t.view.load());
+        assert.equal(t.view.values.ipv6,undefined);
+        t.view.step=1;t.view.draw();
+        const toggle=t.button('开启 IPv6');assert(toggle);
+        assert.equal(toggle['aria-checked'],'false');
+        await toggle.click();
+        assert.equal(t.view.values.ipv6,readonly?undefined:true);
+        if(!readonly){
+            t.view.values.lanPorts=['eth0'];await t.button('预览变更 →').click();
+            assert.equal(t.view.step,2);assert(t.view.plan.summary.some(x=>x.includes('IPv6：开启')));
+        }
+    }
+});
+test('network wizard refuses custom LAN IPv6 clients and relay configurations',()=>{
+    for(const values of [ {'network.lan6.proto':'static','network.lan6.device':'@lan'}, {'network.lan6.proto':'dhcpv6','network.lan6.device':'eth1'}, {'dhcp.lan.ra':'relay'} ]){
+        const t=setup('johnny-network.js');t.uci.get=(...keys)=>values[keys.join('.')];
+        assert.equal(t.view.environment({status:{interfaces:[]},changes:{}}).complex,true);
+    }
 });

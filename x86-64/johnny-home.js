@@ -186,24 +186,7 @@ return view.extend({
                 this.button('重启',()=>this.serviceAction('restart'),readonly),
                 link('服务设置','admin','services','meowx')])
         ],'view/meowx/logo-light.png',E('div',{class:'jw-switch'},[E('span',{},'服务开关'),toggle,E('span',{},mx.running?'已开启':'已关闭')]));
-        const networks=zt.networks||[], node=zt.node||{},lan=model.lanOverview(zt.lan||{},networks);
-        const ztCard=card('ZeroTier',[
-            E('div',{class:'jw-row'},[E('span',{},'服务状态'),badge(zt.running?'运行中':this.data?'未运行':'未知',zt.running)]),
-            ...(networks.length?networks:[null]).map(n=>E('div',{class:'jw-network'},[
-                row('网络名称',n?.name||n?.id||'尚未加入网络'),
-                E('div',{class:'jw-row'},[E('span',{},'网络授权'),badge(n?(model.ztState(node,n).authorized?'已授权':statusNames[model.ztState(node,n).state]):'等待加入',model.ztState(node,n).authorized)]),
-                row(n?.allowManaged===false?'控制器分配 IP（自动应用关闭）':'本机虚拟 IP',(n?.assignedAddresses||[]).join('、')||'等待控制器分配')])),
-            E('div',{class:'jw-lan-panel'},[E('h4',{},'内网互访'),E('div',{class:'jw-lan-diagram'},[
-                E('span',{},[icon('router'),E('span',{},'本地内网')]),E('strong',{},'⇄'),E('span',{},[icon('router'),E('span',{},'远端内网')])]),
-                row('本地网段',lan.local.join('、')||'待获取'),
-                row('远端网段',lan.remote.length?'已识别 '+lan.remote.length+' 个':'等待控制器下发'),
-                row('内网路由',networks.some(n=>n.allowManaged===false)?'部分网络未启用自动应用':lan.remote.length?'已收到':'等待获取')]),
-            E('a',{class:'jw-connectivity-link',href:L.url('admin','services','zerotier','setup')+'#connectivity'},[
-                E('strong',{},'目标连通性'),E('span',{},connectivity.summary({...zt,id:networks[0]?.id,network:networks[0]}).label),E('span',{},'检测 ›')]),
-            E('p',{class:'jw-subtle'},networks.some(n=>n.allowManaged===false)?'自动地址与路由未启用，请在服务设置中检查“允许受管”。已有设置会保留。':'已有地址与路由自动获取，无需重复填写。'),
-            E('div',{class:'jw-actions jw-service-actions'},[link('设置向导','admin','services','zerotier','setup'),link('网络详情','admin','services','zerotier','interface')]),
-            E('a',{class:'jw-zt-settings',href:L.url('admin','services','zerotier','config')},'⚙ 服务设置 ›')
-        ],'johnny/zerotier.png',badge(node.online===true?'节点在线':'节点离线',node.online===true));
+        const networks=zt.networks||[], node=zt.node||{};
         let cpu=null;
         const a=this.previous?.system?.cpu,b=system.cpu;
         if(a&&b&&b.total>a.total&&b.idle>=a.idle) cpu=Math.max(0,Math.min(100,100*(1-(b.idle-a.idle)/(b.total-a.total))));
@@ -236,7 +219,7 @@ return view.extend({
         this.content.replaceChildren(
             ...(this.failure?[E('p',{class:'alert-message warning'},this.failure)]:[]),
             ...(this.notice?[E('p',{class:'jw-subtle'},this.notice)]:[]),stats,
-            E('div',{class:'jw-grid jw-home-layout'},[E('div',{class:'jw-home-column'},[meowCard,traffic]),E('div',{class:'jw-home-column'},[ztCard,interfaces])]),
+            E('div',{class:'jw-grid jw-home-layout'},[meowCard,E('div',{class:'jw-home-column'},[traffic,interfaces])]),
             E('div',{class:'jw-shortcuts'},[shortcut('网络向导','设置地址与 DNS','router','admin','johnny-network'),shortcut('网络设置','高级网络配置','router','admin','network','network'),shortcut('日志查看','系统与服务日志','memory','admin','status','syslog'),shortcut('备份与更新','固件备份与系统更新','disk','admin','system','flash')])
         );
     },
@@ -245,7 +228,7 @@ return view.extend({
         if(this.poller) poll.remove(this.poller);
         this.poller=()=>this.refresh();poll.add(this.poller,5);this.draw();
         return E('div',{class:'jw-page'},[E('link',{rel:'stylesheet',href:L.resource('johnny/johnny.css')+'?v='+encodeURIComponent(L.env?.resource_version||'development')}),
-            E('div',{class:'jw-header'},[E('div',{},[E('h2',{},'设备概览'),E('p',{},'JohnnyWrt · ImmortalWrt 25.12 · x86/64')]),link('网络向导','admin','johnny-network')]),this.content]);
+            E('div',{class:'jw-header'},[E('div',{},[E('h2',{},'设备概览'),E('p',{},'Johnnywrt'+(this.data?.system?.display_version?' '+this.data.system.display_version:'')+' · ImmortalWrt 25.12 · x86/64')]),link('网络向导','admin','johnny-network')]),this.content]);
     },
     handleSaveApply:null,handleSave:null,handleReset:null
 });
