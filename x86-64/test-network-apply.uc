@@ -190,10 +190,14 @@ try {
     print('PASS: confirmed network change survives rollback timeout\n');
 } catch(e) { printf('NETWORK_TEST_FAILURE %J\n',e); failure=e; }
 {
+    try { printf('NETWORK_CLEANUP_BEGIN %J\n',runtime_state()); }
+    catch(e) { printf('NETWORK_CLEANUP_SNAPSHOT_ERROR before %J\n',e); }
     rpc('session','destroy',{ubus_rpc_session:sid});
     // Destroying an unconfirmed session rolls back; restore cleanup files after it.
     for(let name,text in original)writefile('/etc/config/'+name,text);
     rpc('uci','reload_config',{});
+    try { printf('NETWORK_CLEANUP_RETURN %J\n',runtime_state()); }
+    catch(e) { printf('NETWORK_CLEANUP_SNAPSHOT_ERROR after %J\n',e); }
     c.disconnect();
 }
 assert(!failure, ''+failure);

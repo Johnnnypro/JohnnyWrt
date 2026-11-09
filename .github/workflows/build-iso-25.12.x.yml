@@ -208,6 +208,7 @@ jobs:
             bin/targets/x86/64/*.manifest
             bin/targets/x86/64/*squashfs-combined-efi.img.gz
             bin/targets/x86/64/boot-test.log
+            bin/targets/x86/64/smoke-failed.img.gz
             bin/targets/x86/64/upgrade-test.log
             bin/targets/x86/64/upgrade-test-screen.ppm
             bin/targets/x86/64/upgrade-failed.img.gz

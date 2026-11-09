@@ -13,6 +13,22 @@ root = Path(__file__).parent
 
 
 class SmokeInputTest(unittest.TestCase):
+    def test_connectivity_evidence_cannot_replace_test_status_when_tools_fail(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            for name in ('ip', 'ubus', 'cat', 'uci', 'ps', 'grep', 'cut'):
+                command = target / name
+                command.write_text('#!/bin/sh\necho diagnostic-unavailable\nexit 7\n')
+                command.chmod(0o755)
+            source = (root / 'test-johnny-nat-diagnostics.sh').read_text()
+            source = source.replace('/tmp/johnny-nat-diagnostics', str(target))
+            script = 'set -e\n' + source + '\njohnny_connectivity_snapshot fixture\necho STILL_TESTING\nexit 23\n'
+            result = subprocess.run(['sh', '-c', script], capture_output=True, text=True,
+                                    env=dict(os.environ, PATH=str(target) + os.pathsep + os.environ['PATH']))
+            self.assertEqual(result.returncode, 23, result.stderr)
+            self.assertIn('STILL_TESTING', result.stdout)
+            self.assertIn('diagnostic-unavailable', (target / 'connectivity-fixture.log').read_text())
+
     def test_nat_diagnostics_do_not_replace_smoke_exit_status(self):
         source = (root / 'smoke-test25.py').read_text()
         trap = re.search(r"trap '(.+?)' EXIT", source, re.S).group(0)
@@ -24,6 +40,16 @@ class SmokeInputTest(unittest.TestCase):
                 result = subprocess.run(['sh', '-c', script], capture_output=True, text=True)
                 self.assertEqual(result.returncode, status, result.stderr)
                 self.assertIn('NAT_DIAGNOSTICS', result.stdout)
+
+    def test_traced_apk_keeps_failure_even_when_diagnostics_fail(self):
+        source = (root / 'smoke-test25.py').read_text()
+        trace = re.search(r'if strace -f .+?\nfi', source, re.S).group(0)
+        trap = re.search(r"trap '(.+?)' EXIT", source, re.S).group(0)
+        for status in (0, 8):
+            script = (f'strace() {{ return {status}; }}; rm() {{ :; }}; '
+                      'johnny_nat_diagnostics_dump() { return 9; };\n' + trap + '\n' + trace + '\nexit 0\n')
+            result = subprocess.run(['sh', '-c', script], capture_output=True, text=True)
+            self.assertEqual(result.returncode, status, result.stderr)
 
     def test_nat_recording_preserves_helper_input_output_and_failure(self):
         diagnostic = root / 'test-johnny-nat-diagnostics.sh'

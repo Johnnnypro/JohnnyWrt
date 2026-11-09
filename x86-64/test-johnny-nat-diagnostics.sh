@@ -1,6 +1,19 @@
 #!/bin/sh
 # Test-only instrumentation for smoke-test25.py's disposable guest. Keep the
 # production helper unchanged in a copy; wrappers preserve its data and status.
+johnny_connectivity_snapshot() {
+    (
+        set +e
+        echo "CONNECTIVITY_SNAPSHOT $1 $(cut -d ' ' -f 1 /proc/uptime)"
+        ip -4 rule; ip -6 rule
+        ip -4 route show table all; ip -6 route show table all
+        ubus call network.interface dump
+        cat /etc/resolv.conf /tmp/resolv.conf.d/resolv.conf.auto
+        uci show dhcp
+        ps w | grep -E 'dnsmasq|meowx|tailscale'
+    ) > "/tmp/johnny-nat-diagnostics/connectivity-$1.log" 2>&1 || true
+}
+
 johnny_nat_diagnostics_start() {
     mkdir -p /tmp/johnny-nat-diagnostics/bin
     cp /usr/libexec/johnny-zt-nat /tmp/johnny-nat-diagnostics/original-helper
@@ -49,6 +62,17 @@ johnny_nat_diagnostics_dump() {
     # The caller saves the smoke exit code before invoking this best-effort dump.
     # Disable xtrace so it cannot be interleaved with exported JSON or nft input.
     set +x
+    if [ "${smoke_status:-0}" -ne 0 ]; then
+        johnny_connectivity_snapshot failure
+        {
+            for host in downloads.immortalwrt.org dl.miaomiaowux.com; do
+                timeout 8 nslookup -type=A "$host" || true
+                timeout 8 nslookup -type=AAAA "$host" || true
+            done
+            curl -4 -v --connect-timeout 5 --max-time 10 https://downloads.immortalwrt.org/releases/25.12.2/targets/x86/64/packages/packages.adb -o /dev/null || true
+        } > /tmp/johnny-nat-diagnostics/connectivity-probes.log 2>&1
+        logread > /tmp/johnny-nat-diagnostics/all-events.log
+    fi
     kill "$johnny_nat_monitor_pid" 2>/dev/null || true
     wait "$johnny_nat_monitor_pid" 2>/dev/null || true
     cat /var/run/fw4.state > /tmp/johnny-nat-diagnostics/fw4-state.json

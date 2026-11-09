@@ -61,6 +61,7 @@ jobs:
           name: meowx-preflight-${{ github.run_id }}
           path: |
             diagnostic/boot-test.log
+            diagnostic/smoke-failed.img.gz
             diagnostic/upgrade-test.log
             diagnostic/retention-*.json
             vendor-migration/upgrade-test.log

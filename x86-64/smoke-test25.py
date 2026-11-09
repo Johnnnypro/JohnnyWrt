@@ -61,6 +61,9 @@ test -x /usr/sbin/tailscaled
 /usr/sbin/tailscale version
 /etc/init.d/tailscale running
 /usr/sbin/tailscale status --json | jsonfilter -e '@.BackendState' | grep -q .
+# Trace test-host connectivity failures without adding strace to the firmware.
+apk update
+apk add strace
 test -s /etc/meowx/run/ui/index.html
 test "$(uci get meowx.mixin.ui_path)" = ui
 test -z "$(uci -q get meowx.mixin.ui_name)"
@@ -74,9 +77,12 @@ test ! -e /usr/lib/lua/luci/controller/quickstart.lua
 test ! -e /usr/lib/lua/luci/controller/store.lua
 sh /tmp/test-dashboard-api.sh
 sh /tmp/test-quickstart.sh
+johnny_connectivity_snapshot before-meowx
 sh /tmp/test-meow-actions.sh
 sh /tmp/test-subscription-refresh.sh
+johnny_connectivity_snapshot before-matrix
 ucode /tmp/test-network-apply.uc
+johnny_connectivity_snapshot after-matrix
 test -z "$(jsonfilter -i /usr/share/luci/menu.d/luci-base.json -e '@["admin/nas"].title')"
 test -z "$(jsonfilter -i /usr/share/luci/menu.d/luci-app-zerotier.json -e '@["admin/vpn/zerotier"].title')"
 test "$(jsonfilter -i /usr/share/luci/menu.d/luci-app-zerotier.json -e '@["admin/services/zerotier/config"].action.path')" = zerotier/config
@@ -106,7 +112,12 @@ EOF
 done
 # Updating and loading this exact kernel's module catches a mismatched feed.
 # The guest disk is disposable; test-only packages never enter the ISO.
-apk update
+johnny_connectivity_snapshot before-apk
+if strace -f -o /tmp/johnny-nat-diagnostics/apk-trace.log apk update; then
+    rm -f /tmp/johnny-nat-diagnostics/apk-trace.log
+else
+    exit "$?"
+fi
 apk add kmod-veth kmod-dummy tcpdump
 sh /tmp/test-johnny-probe.sh
 fw4 check
@@ -295,6 +306,9 @@ finally:
         process.kill()
         process.wait()
     selector.close()
+    if not passed:
+        with disk.open('rb') as source, gzip.open(image.parent / 'smoke-failed.img.gz', 'wb', compresslevel=1) as target:
+            shutil.copyfileobj(source, target)
     disk.unlink(missing_ok=True)
 
 if not passed:

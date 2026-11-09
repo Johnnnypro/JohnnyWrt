@@ -410,3 +410,11 @@
 - 最新 #14 升级 fixture 增加 --with-meowx-mesh：先安装当前官方包，使用仅指向 localhost:9 的失败登录生成一次性原生 machine identity，再 down；保留配置与完整状态文件原始 hash、备份清单和原生启用/运行状态。后续断言不重建身份，不 enable/start 掩盖启动失败。普通重启与两轮最终镜像升级仍须通过；此处不声称真实账户已登录或跨站点通信已验证。
 - 本地 #14 的原生身份准备、官方包检查及普通重启已退出 0：Tailscale 配置/完整状态文件与同一原始 baseline 保持逐字 hash 一致，启用、运行和本地 CLI 均通过。源码 110 项 Node、36 项 Python 与静态检查通过，官方 MeowX 四包版本再次核对一致；独立代码复查无阻断项。云端预检新增这条 Mesh 重启检查，总时限随新增步骤由 40 改为 50 分钟，原有各阶段超时和全部断言不变。
 - 加入依赖后的当前源码在原 #14 一次性副本完成同一 CI 串口完整检查，进程退出码 0：Tailscale 二进制/原生 daemon、15 组网络应用/回滚、MeowX 动作/订阅、离线规则、内核模块源、页面、ZeroTier 重绑定与限定回包 NAT 全部通过。原压缩镜像仍使用固定 #14 SHA256；接下来必须完成最新源码云端预检及最终新镜像验收。
+
+### 26.11.10 预检 #13：矩阵后的软件源连接失败，仍在定位
+
+- #13（42680124752，源码 036ac21）源码/Linux 检查、Tailscale 原生服务、MeowX/订阅、全部 15 个 IPv6 应用/回滚、确认保持、页面与离线数据均通过。后续 apk update 的八个源均报 wget `Failed to send request: Operation not permitted`，退出码 8；升级、编译和发布未执行。证据 ZIP SHA256 `cfea1071d6aa3ca26a9e36608d32590edbf9abf74e93c5eb2722d13a839f3124` 已核对。
+- 固件 uclient 为 2026.06.07~daad21fa。该提交 uclient_setup_https 在 usock 连接失败后返回 UCLIENT_ERROR_CONNECT（枚举值 1），fetch 对此调用 strerror(1)；此文本不是内核 EPERM 的直接证据。实际原因可能在解析或连接阶段，不能据此认定防火墙拒绝。依据：https://github.com/openwrt/uclient/blob/daad21fa/uclient-http.c 与同提交 uclient-fetch.c、uclient.h。
+- 失败时 LAN up=true，DHCP 地址、默认路由和 DNS 指向同一有效测试上游；nft output 接受且没有 MeowX/Tailscale 过滤链。现有证据没有实际 DNS 回答、IPv6 路由/策略或原请求 syscall，不能证明 HTTPS 当时可用。独立复查指出最终写回 original/reload_config 后未再等待运行态，是明确的测试隔离缺口，但尚未证明它解释本次失败。
+- 先加测试专用诊断：在 MeowX 前、网络矩阵前后和 APK 前记录路由/规则/resolver/进程；对原 APK 请求做 strace，失败才导出 DNS A/AAAA、明确 IPv4 HTTPS 和完整事件日志，原 APK 退出码仍决定结果。保留一次性失败磁盘，不能发布该磁盘。没有改固件产品代码、重试 APK、重启服务或放宽功能断言。
+- 诊断函数不能改变测试退出状态：工具故障负例先失败后通过，串口输入/状态保护现 10 项（含原 APK 退出码 0/8 在诊断失败时仍保留）。同一原始 #14 镜像的完整本地诊断已退出 0，全部功能、网络矩阵及原 APK 请求通过；这没有复现云端失败，不能据此关闭问题。真实原因与修正必须另记，不把增加记录或偶然通过称为根因修复。
