@@ -492,7 +492,7 @@ grep -q johnny_online_update /www/luci-static/resources/view/system/flash.js
 fw4 check
 ''')
         if args.without_zerotier:
-            run(client, 'test ! -e /etc/init.d/zerotier && test ! -e /usr/share/luci/menu.d/luci-app-zerotier.json && test ! -e /usr/libexec/johnny-zt-nat && test -z "$(uci -q get network.zerotier)"')
+            run(client, 'test ! -e /etc/init.d/zerotier && test ! -e /usr/share/luci/menu.d/luci-app-zerotier.json && test ! -e /usr/libexec/johnny-zt-nat && test ! -e /etc/nftables.d/30-johnny-zt-lan.nft && test ! -e /usr/share/nftables.d/chain-pre/srcnat/30-johnny-zt-lan.nft && test -z "$(uci -q get network.zerotier)"')
             verify_package_versions(client)
             run(client, r'''set -e
 # Prove keep.d works independently of the one-time preparation on old firmware.

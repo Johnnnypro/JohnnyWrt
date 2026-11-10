@@ -35,12 +35,25 @@ config rule 'keep_after'
 
 EOF
 printf 'private identity\n' > "$root/etc/config/zerotier"
+legacy_files='etc/nftables.d/30-johnny-zt-lan.nft
+usr/share/nftables.d/chain-pre/srcnat/30-johnny-zt-lan.nft
+etc/hotplug.d/net/31-zerotier-interface
+etc/hotplug.d/iface/90-zerotier-rebind
+usr/libexec/johnny-zt-nat
+www/luci-static/resources/view/johnny/zerotier.js'
+for file in $legacy_files; do
+    mkdir -p "$root/$(dirname "$file")"
+    printf 'legacy integration\n' > "$root/$file"
+done
+printf 'user firewall rule\n' > "$root/etc/nftables.d/user-rule.nft"
 cp "$root/etc/config/network" "$root/network.before"
 cp "$root/etc/config/firewall" "$root/firewall.before"
 sh x86-64/johnny-remove-zerotier "$root"
 ! grep -q zerotier "$root/etc/config/network"
 ! grep -qE 'zerotier|johnny_zt_nat' "$root/etc/config/firewall"
 test ! -e "$root/etc/config/zerotier"
+for file in $legacy_files; do test ! -e "$root/$file"; done
+test "$(cat "$root/etc/nftables.d/user-rule.nft")" = 'user firewall rule'
 sed '/^config interface .zerotier./,/^$/d' "$root/network.before" > "$root/network.expected"
 sed -e '/^config zone .johnny_zerotier./,/^$/d' -e '/^config include .zerotier_input./,/^$/d' -e '/^config include .johnny_zt_nat./,/^$/d' "$root/firewall.before" > "$root/firewall.expected"
 cmp "$root/network.expected" "$root/etc/config/network"

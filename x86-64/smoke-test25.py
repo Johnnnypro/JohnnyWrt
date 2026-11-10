@@ -58,6 +58,8 @@ test ! -e /usr/sbin/zerotier-one
 test ! -e /usr/share/luci/menu.d/luci-app-zerotier.json
 test ! -e /www/luci-static/resources/view/johnny/zerotier.js
 test ! -e /usr/libexec/johnny-zt-nat
+test ! -e /etc/nftables.d/30-johnny-zt-lan.nft
+test ! -e /usr/share/nftables.d/chain-pre/srcnat/30-johnny-zt-lan.nft
 test ! -e /etc/hotplug.d/net/31-zerotier-interface
 test ! -e /etc/hotplug.d/iface/90-zerotier-rebind
 test -z "$(uci -q get network.zerotier)"

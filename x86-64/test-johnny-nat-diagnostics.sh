@@ -16,6 +16,7 @@ johnny_connectivity_snapshot() {
 
 johnny_nat_diagnostics_start() {
     mkdir -p /tmp/johnny-nat-diagnostics/bin
+    if [ -f /usr/libexec/johnny-zt-nat ]; then
     cp /usr/libexec/johnny-zt-nat /tmp/johnny-nat-diagnostics/original-helper
     sha256sum /usr/libexec/johnny-zt-nat /tmp/johnny-nat-diagnostics/original-helper > /tmp/johnny-nat-diagnostics/helper-sha256.txt
     command -v ubus > /tmp/johnny-nat-diagnostics/real-ubus
@@ -54,6 +55,7 @@ printf 'END time=%s pid=%s rc=%s subnets=<%s>\n' "$(date +%s)" "$$" "$helper_sta
 exit "$helper_status"
 HELPER_EOF
     chmod +x /tmp/johnny-nat-diagnostics/bin/* /usr/libexec/johnny-zt-nat
+    fi
     nft monitor > /tmp/johnny-nat-diagnostics/monitor.log 2>&1 &
     johnny_nat_monitor_pid=$!
 }

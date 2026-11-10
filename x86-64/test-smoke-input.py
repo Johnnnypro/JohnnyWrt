@@ -13,6 +13,19 @@ root = Path(__file__).parent
 
 
 class SmokeInputTest(unittest.TestCase):
+    def test_diagnostics_start_without_the_removed_zerotier_helper(self):
+        source = (root / 'test-johnny-nat-diagnostics.sh').read_text()
+        source = source.replace('/tmp/johnny-nat-diagnostics', '$fixture/evidence')
+        source = source.replace('/usr/libexec/johnny-zt-nat', '$fixture/removed-helper')
+        script = ('set -e\nfixture=$(mktemp -d)\ntrap \'rm -rf "$fixture"\' EXIT\n'
+                  'nft() { :; };\n' + source + '\njohnny_nat_diagnostics_start\n'
+                  'test ! -e "$fixture/removed-helper"\n'
+                  'test ! -e "$fixture/evidence/original-helper"\n'
+                  'wait "$johnny_nat_monitor_pid"\necho DIAGNOSTICS_READY\n')
+        result = subprocess.run(['sh', '-c', script], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('DIAGNOSTICS_READY', result.stdout)
+
     def test_negative_signal_evidence_accepts_serial_noise_but_not_broken_proof(self):
         source = (root / 'test-procd-negative.py').read_text()
         parser = compile(source[source.index("log = (image.parent / 'boot-test.log')"):], 'negative-log-parser', 'exec')

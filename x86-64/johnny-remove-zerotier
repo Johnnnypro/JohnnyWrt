@@ -19,3 +19,10 @@ for config in network firewall; do
     if cmp -s "$file" "$temporary"; then rm "$temporary"; else mv "$temporary" "$file"; fi
 done
 rm -f "$root/etc/config/zerotier" "$root/etc/rc.d/"*zerotier
+# Native sysupgrade may restore these old firmware-owned firewall files.
+rm -f "$root/etc/nftables.d/30-johnny-zt-lan.nft" \
+    "$root/usr/share/nftables.d/chain-pre/srcnat/30-johnny-zt-lan.nft" \
+    "$root/etc/hotplug.d/net/31-zerotier-interface" \
+    "$root/etc/hotplug.d/iface/90-zerotier-rebind" \
+    "$root/usr/libexec/johnny-zt-nat" \
+    "$root/www/luci-static/resources/view/johnny/zerotier.js"
