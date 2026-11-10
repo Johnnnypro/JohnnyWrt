@@ -30,7 +30,7 @@
 
 ### Task 2: Release and evidence
 - [x] Update spec/release notes/maintenance to the final scope; preserve the cancelled run's artifact.
-- [ ] Run the guarded clean build, final functionality, four retained upgrades, ISO checks and publication.
-- [ ] Verify public assets and intended router's native updater without flashing; then clean completed non-success Actions runs and report supported upgrade paths.
+- [x] Run the guarded clean build, final functionality, four retained upgrades, ISO checks and publication.
+- [x] Verify public assets and intended router's native updater without flashing; then clean completed non-success Actions runs and report supported upgrade paths.
 
-Evidence: four RED cases before rollback; Node 92/92, Python 43/43, full serial smoke exit 0 with five scenarios/13 DNS replies/two startup-signal checks. Three production/fixture files byte-identical to #14. Linux shell checks await the existing Ubuntu build gate (BSD sed is incompatible locally). Reviewer found no blockers. No additional scope rulings or deferred code findings.
+Evidence: four RED cases before rollback; Node 92/92, Python 43/43 and Ubuntu shell checks passed in #17. Final clean image passed full serial smoke with five scenarios/13 DNS replies/two startup-signal checks. Four actual retained upgrades passed on that unchanged image, with all eight snapshots checked against their original baselines. Three production/fixture files remain byte-identical to #14. Release 439840845 is public/latest with five downloaded and hash-verified assets; the intended router's unchanged native updater reached ready with the same image hash and unchanged boot ID. No real-router flash/reboot occurred. API inventory after cleanup: 15 success runs, zero other runs. See MAINTENANCE.md for original evidence hashes and publication details.

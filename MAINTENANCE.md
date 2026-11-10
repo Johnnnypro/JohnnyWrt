@@ -520,3 +520,14 @@
 - 续跑42732462638（2ad62cb）实际权限对照、legacy两次升级（48/51秒）、#14+Mesh两次升级（48/48秒）、ISO双引导目录及内嵌镜像一致性全部通过。证据ZIP017715d65e53a3d38bf7d0bdaedff7b5cab5839313697bab72edd8e497a06cf7已下载；八份快照独立重放通过（legacy10文件/387字段/9账号，Mesh12文件/395字段/9账号）。ISO内嵌固件解压SHA为3cb962cd26654030fb0602df946ff72a88f0e206790c63b3802f1a59cd34ec38。
 - 该轮仅最后GitHub创建Release接口返回403 Resource not accessible by integration；日志确认GITHUB_TOKEN已有Contents:write，但未证明更具体的拒绝原因，尚无新tag/release。不重跑已过的固件编译/升级门禁。证据工件未保存ISO附件，下一只读任务固定该证据ZIP、重放八快照与完整smoke结果，仅重新封装校验ISO并上传全部公开文件，随后通过已登录账号网页发布，仍固定原source/tag。
 - 最终原始镜像已在授权实机通过传输SHA、原生分区起点/长度和sysupgrade -T（退出0）；boot_id保持不变，未刷写/重启。两次辅助分区采集曾因未加载库及独立set-e调用方式退出，均未运行到-T；按原更新器的库与条件调用语义执行后完整通过，不是修改固件或放宽检查。临时上传文件已清理；发布后仍需原更新器下载验收。
+
+
+### 26.11.10 正式发布与最终验收完成
+
+- 只读附件准备42734692952成功；公开文件ZIP的SHA256为c0b94c2f8059254ec042261e178d3b6bdb0d71e00b6d5cd2c7ff75901c8548bc。没有重复编译固件或重新执行已通过的升级链。
+- 正式发布：https://github.com/Johnnnypro/JohnnyWrt/releases/tag/Johnnywrt-ISO-25.12.2-1794270621，Release ID 439840845，标题Johnnywrt 26.11.10，非草稿/非预发布，latest已确认。网页首次提交时ISO上传尚未完成，已删除失败占位并补传ISO与SHA256SUMS；最终五附件全部uploaded。今后网页发布应先以服务端附件状态确认上传完成。
+- 镜像实际构建源码仍为a73030258e07366d9dd59d4c22850a19ae2fbf1f；网页创建的Git标签实际指向发布准备提交0b59a3187a8f6e5e35529297f0301f6b0c91050b。两者仅CI工作流和维护记录不同，x86-64产品与测试源码逐字一致；firmware.json.commit准确记录实际构建来源，不把标签提交冒充构建来源。
+- 已从公开browser_download_url重新下载全部五附件，逐个核对服务端size/digest、SHA256SUMS四项、metadata、原CI镜像/manifest、GPT、完整smoke及八份原baseline保留快照，全部通过。镜像SHA256为1f3800a23349495d7ddaf20a031556e62ddc64186e24def8f679878abd90aab6；ISO为a6672abfb3c128923ee718e744491d8155abb139fb26f0c7bfc0f26dabc18b16。ISO双引导目录及内嵌原镜像一致性已在成功附件任务检查。
+- 授权实机原#14更新器未修改，实际check识别兼容版，download从公开Release下载，经SHA256/原生完整分区比对/sysupgrade -T后到ready。系统仍运行原#14，boot_id前后一致，未flash/重启；下载保留待用户自行确认。
+- Actions最终API清单15条、全部completed/success；本次累计删除21条已结束非success记录（先前18条及42727562151、42731967925、42732462638）。原始镜像/日志/快照和清理清单已保留在任务工作目录，旧Actions附件链接被清理后404是预期。正式Release和成功运行均保留。移除已完成且依赖被删工件的一次性complete-26.11.10.yml；常规构建的已实测runuser/kvm修复保留。
+- 支持已验证的旧仓库fixture及本仓库#14到本版、再到本版的同系列同分区保留配置升级。旧仓库固件需手动上传img.gz保留配置一次，之后使用新仓库在线更新。没有证明任意硬件/跨大版本、真实运营商PPPoE/DHCPv6-PD或私人两地组网；本次没有执行真实路由器刷写，也没有声称GITHUB_TOKEN创建Release的403根因已确定。
