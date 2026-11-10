@@ -5,12 +5,12 @@ concurrency:
   group: johnnywrt-release
   cancel-in-progress: false
 permissions:
-  contents: write
+  contents: read
   actions: read
 jobs:
   complete:
     runs-on: ubuntu-22.04
-    timeout-minutes: 35
+    timeout-minutes: 15
     defaults:
       run:
         shell: bash
@@ -23,76 +23,46 @@ jobs:
         with:
           ref: a73030258e07366d9dd59d4c22850a19ae2fbf1f
 
-      - name: Require the exact original candidate and successful completed gates
+      - name: Verify completed upgrade and ISO evidence before preparing public files
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           test "$(git rev-parse HEAD)" = a73030258e07366d9dd59d4c22850a19ae2fbf1f
-          gh api repos/Johnnnypro/JohnnyWrt/actions/runs/42727562151 > saved-run.json
-          gh api repos/Johnnnypro/JohnnyWrt/actions/runs/42727562151/jobs > saved-jobs.json
-          gh api repos/Johnnnypro/JohnnyWrt/actions/artifacts/13725345232/zip > candidate.zip
-          echo '54734b476d7260f3525d32124d3b64fcf00b51d48f0e903fe2647e24595b5f37  candidate.zip' | sha256sum -c -
-          unzip -q candidate.zip -d saved
+          gh api repos/Johnnnypro/JohnnyWrt/actions/runs/42732462638/jobs > final-jobs.json
+          gh api repos/Johnnnypro/JohnnyWrt/actions/artifacts/13725902095/zip > verified.zip
+          echo '017715d65e53a3d38bf7d0bdaedff7b5cab5839313697bab72edd8e497a06cf7  verified.zip' | sha256sum -c -
+          unzip -q verified.zip -d verified
           python3 - <<'PY'
-          import json
+          import ast, hashlib, json
           from pathlib import Path
-          run = json.loads(Path('saved-run.json').read_text())
-          assert run['head_sha'] == 'a73030258e07366d9dd59d4c22850a19ae2fbf1f'
-          assert run['status'] == 'completed' and run['conclusion'] == 'failure'
-          job = next(j for j in json.loads(Path('saved-jobs.json').read_text())['jobs'] if j['name'] == 'build')
+          job = next(j for j in json.loads(Path('final-jobs.json').read_text())['jobs'] if j['name'] == 'complete')
           steps = {s['name']: s['conclusion'] for s in job['steps']}
-          for name in ['Test customization scripts', 'Verify deployed BIOS reboot baseline with KVM before building', 'Build customized bypass firmware', 'Verify required firmware packages', 'Boot firmware and test defaults']:
+          for name in ['Require the exact original candidate and successful completed gates', 'Prove KVM access without a temporary user ACL', 'Verify required firmware packages', 'Verify retained-settings upgrades and real SSH login', 'Verify latest release to new and new to new upgrades', 'Verify ISO boot catalog and embedded firmware']:
               assert steps[name] == 'success', name
-          lines = Path('saved/bin/targets/x86/64/boot-test.log').read_bytes().decode('utf-8', 'replace').splitlines()
-          for prefix, count in [('NETWORK_TEST_BEGIN ', 5), ('NETWORK_DNS_PASS ', 13), ('PASS: startup ', 2), ('JOHNNY_BOOT_TEST_PASSED', 1), ('JOHNNY_NAT_DIAGNOSTICS_END', 1)]:
+          original = json.loads(Path('verified/saved-run.json').read_text())
+          assert original['head_sha'] == 'a73030258e07366d9dd59d4c22850a19ae2fbf1f'
+          source = Path('x86-64/test-sysupgrade.py').read_bytes()
+          assert hashlib.sha256(source).hexdigest() == 'a36eb7a25de8d08a1d003c06b40761cfa2a21bffe1486856643582bbafcc271f'
+          function = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == 'assert_retained')
+          namespace = {'hashlib': hashlib}
+          exec(compile(ast.Module(body=[function], type_ignores=[]), 'retention', 'exec'), namespace)
+          for directory in [Path('verified/bin/targets/x86/64'), Path('verified/latest-upgrade')]:
+              baseline = json.loads((directory/'retention-baseline.json').read_text())
+              snapshots = list(directory.glob('retention-round-*.json'))
+              assert len(snapshots) == 4
+              for snapshot in snapshots:
+                  namespace['assert_retained'](baseline, json.loads(snapshot.read_text()))
+          lines = Path('verified/bin/targets/x86/64/boot-test.log').read_bytes().decode('utf-8','replace').splitlines()
+          for prefix, count in [('NETWORK_TEST_BEGIN ',5), ('NETWORK_DNS_PASS ',13), ('PASS: startup ',2), ('JOHNNY_BOOT_TEST_PASSED',1), ('JOHNNY_NAT_DIAGNOSTICS_END',1)]:
               assert sum(line.startswith(prefix) for line in lines) == count, prefix
           assert 'JOHNNY_BOOT_TEST_FAILED' not in lines
-          print('PASS: immutable clean candidate, source checks, BIOS baseline and complete UEFI smoke')
+          print('PASS: exact original source, complete smoke and all eight upgrade snapshots')
           PY
-          mkdir -p bin/targets/x86/64 previous-release
-          cp saved/bin/targets/x86/64/*squashfs-combined-efi.img.gz saved/bin/targets/x86/64/*.manifest saved/bin/targets/x86/64/profiles.json saved/bin/targets/x86/64/boot-test.log bin/targets/x86/64/
-          cp saved/previous-release/upgrade-test.log previous-release/
+          mkdir -p bin/targets/x86/64
+          cp verified/bin/targets/x86/64/*squashfs-combined-efi.img.gz verified/bin/targets/x86/64/*.manifest bin/targets/x86/64/
           echo '1f3800a23349495d7ddaf20a031556e62ddc64186e24def8f679878abd90aab6  bin/targets/x86/64/immortalwrt-25.12.2-x86-64-generic-squashfs-combined-efi.img.gz' | sha256sum -c -
-          echo 'a36eb7a25de8d08a1d003c06b40761cfa2a21bffe1486856643582bbafcc271f  x86-64/test-sysupgrade.py' | sha256sum -c -
-
-      - name: Prove KVM access without a temporary user ACL
-        run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf xorriso squashfs-tools acl
-          python3 -m pip install paramiko==3.5.1
-          test -c /dev/kvm
-          sudo setfacl -b /dev/kvm
-          sudo chown root:kvm /dev/kvm
-          sudo chmod 0660 /dev/kvm
-          id
-          getfacl /dev/kvm
-          if sudo -n -u nobody -g nogroup -- "$(command -v python3)" -c 'import os; os.open("/dev/kvm", os.O_RDWR)' 2>kvm-denied.log; then
-            echo 'FAIL: unprivileged negative control unexpectedly opened KVM'
-            exit 1
-          fi
-          grep -F 'PermissionError: [Errno 13]' kvm-denied.log
-          sudo -n -- runuser -u "$(id -un)" -g kvm -- "$(command -v python3)" - "$(id -u)" <<'PY' | tee kvm-permissions.log
-          import fcntl, grp, json, os, subprocess, sys
-          assert os.geteuid() == int(sys.argv[1]) != 0
-          assert os.getegid() == grp.getgrnam('kvm').gr_gid
-          fd = os.open('/dev/kvm', os.O_RDWR)
-          assert fcntl.ioctl(fd, 0xAE00, 0) == 12
-          os.close(fd)
-          commands = '\n'.join(json.dumps(c) for c in [{'execute': 'qmp_capabilities'}, {'execute': 'query-kvm', 'id': 'hardware'}, {'execute': 'quit'}]) + '\n'
-          result = subprocess.run(['qemu-system-x86_64', '-accel', 'kvm', '-machine', 'pc', '-m', '64', '-smp', '1', '-nodefaults', '-display', 'none', '-S', '-qmp', 'stdio'], input=commands, text=True, capture_output=True, timeout=15, check=True)
-          replies = [json.loads(line) for line in result.stdout.splitlines()]
-          state = next(reply['return'] for reply in replies if reply.get('id') == 'hardware')
-          assert state == {'enabled': True, 'present': True}, state
-          print('PASS: original runner UID, kvm group, real KVM enabled after all extra ACLs removed', state)
-          PY
-
-      - name: Fetch the unchanged legacy upgrade fixture
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release download Johnnywrt-ISO-25.12.2-1793177592 --repo Johnnnnnnnyx/ImmortalWrt-ImageBuilder --pattern Johnnywrt-x86_64-squashfs-combined-efi.img.gz --dir previous-release
-          echo 'aaf4f7cc25d026f5e24d38affdfcf589c6f1f50ac8883c88ffd48edef9df1956  previous-release/Johnnywrt-x86_64-squashfs-combined-efi.img.gz' | sha256sum -c -
-          gzip -dc previous-release/*.img.gz > previous-release/base.img
+          sudo apt-get install -y --no-install-recommends xorriso squashfs-tools
 
       - name: Verify required firmware packages
         run: |
@@ -107,23 +77,6 @@ jobs:
           done
           if grep -E '^(luci-app-store|quickstart|luci-app-quickstart|luci-i18n-quickstart-[^ ]+) - ' "$manifest"; then exit 1; fi
           grep '^kernel - ' "$manifest"
-
-      - name: Verify retained-settings upgrades and real SSH login
-        run: |
-          image=$(find bin/targets/x86/64 -maxdepth 1 -name '*squashfs-combined-efi.img.gz' -print -quit)
-          sudo -n -- runuser -u "$(id -un)" -g kvm -- "$(command -v python3)" x86-64/test-sysupgrade.py previous-release/base.img "$image" --accel kvm
-
-      - name: Verify latest release to new and new to new upgrades
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p latest-release latest-upgrade
-          gh release download Johnnywrt-ISO-25.12.2-1793414110 --repo Johnnnypro/JohnnyWrt --pattern Johnnywrt-x86_64-squashfs-combined-efi.img.gz --dir latest-release
-          echo 'f5bcd15b8677364ef84ae0c544bf0ff4f9c9c7645c1f723724239884d670eb58  latest-release/Johnnywrt-x86_64-squashfs-combined-efi.img.gz' | sha256sum -c -
-          gzip -dc latest-release/*.img.gz > latest-release/base.img
-          image=$(find bin/targets/x86/64 -maxdepth 1 -name '*squashfs-combined-efi.img.gz' -print -quit)
-          cp "$image" latest-upgrade/firmware.img.gz
-          sudo -n -- runuser -u "$(id -un)" -g kvm -- "$(command -v python3)" x86-64/test-sysupgrade.py latest-release/base.img latest-upgrade/firmware.img.gz --with-meowx-mesh --accel kvm
 
       - name: Build ISO installer from verified firmware
         run: |
@@ -160,49 +113,13 @@ jobs:
             '{tag:$tag,version:$version,display_version:$display_version,commit:$commit,target:"x86/64",format:"squashfs-combined-efi",rootfs_mb:$rootfs_mb}' > firmware.json
           sha256sum Johnnywrt-x86_64.iso *squashfs-combined-efi.img.gz *.manifest firmware.json > SHA256SUMS
 
-      - name: Save build and boot diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: firmware-final-26.11.10
-          path: |
-            bin/targets/x86/64/*.manifest
-            bin/targets/x86/64/*squashfs-combined-efi.img.gz
-            bin/targets/x86/64/boot-test.log
-            bin/targets/x86/64/smoke-failed.img.gz
-            bin/targets/x86/64/upgrade-test.log
-            bin/targets/x86/64/upgrade-network-failure.log
-            bin/targets/x86/64/upgrade-network.pcap
-            bin/targets/x86/64/upgrade-test-screen.ppm
-            bin/targets/x86/64/upgrade-failed.img.gz
-            bin/targets/x86/64/profiles.json
-            bin/targets/x86/64/retention-*.json
-            latest-upgrade/upgrade-test.log
-            latest-upgrade/upgrade-network-failure.log
-            latest-upgrade/upgrade-network.pcap
-            latest-upgrade/upgrade-test-screen.ppm
-            latest-upgrade/retention-*.json
-            latest-upgrade/upgrade-failed.img.gz
-            iso-boot-catalog.txt
-            kvm-permissions.log
-            kvm-denied.log
-            saved-run.json
-            saved-jobs.json
-            previous-release/upgrade-test.log
-            previous-release/upgrade-network-failure.log
-            previous-release/upgrade-network.pcap
-            previous-release/upgrade-test-screen.ppm
-            previous-release/upgrade-failed.img.gz
-          if-no-files-found: ignore
-          retention-days: 7
-
       - name: Prepare ISO release notes
         env:
           VERSION: 25.12.2
           INCLUDE_DOCKER: "no"
         run: |
           cat > "$GITHUB_WORKSPACE/router-info.md" <<EOF
-          - 本发布复用原始构建 #17 的干净镜像及已通过的完整功能测试；当前续跑补齐四次保留配置升级和 ISO 校验，未重新编译或修改固件。
+          - 本发布复用原始构建 #17 的干净镜像；完整功能、四次保留配置升级及 ISO 校验均已通过。本任务重放留存证据并准备公开文件，未重新编译或修改固件。
 
           ## Johnnywrt $RELEASE_VERSION — 基于 ImmortalWrt $VERSION x86-64
 
@@ -248,17 +165,17 @@ jobs:
           - 镜像已通过软件包清单、QEMU UEFI 功能、真实 SSH 认证及旧到新/新到新保留配置升级检查；实机网卡、私人订阅和两地联通性需部署后验证。发布固件不等于已升级用户设备。
           EOF
 
-      - name: Publish verified firmware
-        uses: softprops/action-gh-release@v3
+      - name: Save all verified public files for account-authorized publication
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          target_commitish: a73030258e07366d9dd59d4c22850a19ae2fbf1f
-          name: Johnnywrt ${{ env.RELEASE_VERSION }}
-          body_path: router-info.md
-          fail_on_unmatched_files: true
-          files: |
+          name: release-files-26.11.10
+          path: |
             img-installer/output/Johnnywrt-x86_64.iso
             img-installer/output/*squashfs-combined-efi.img.gz
             img-installer/output/*.manifest
             img-installer/output/firmware.json
             img-installer/output/SHA256SUMS
+            router-info.md
+            iso-boot-catalog.txt
+          if-no-files-found: error
+          retention-days: 7
