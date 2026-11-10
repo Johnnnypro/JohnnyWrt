@@ -107,7 +107,7 @@ return view.extend({
                     this.draw();
                 }}),icon('router'),E('strong',{},p),E('small',{},this.data.status.interfaces.find(x=>x.name===p)?.state==='up'?'已连接':'未连接')]))));
             if(main&&this.env.ports.length<2)contents.push(E('p',{class:'alert-message warning'},'主路由需要独立 WAN 和 LAN 网口。单网口 VLAN 方案请使用高级设置。'));
-            contents.push(E('p',{class:'jw-subtle'},'ZeroTier 接口及内网转发在两种模式下均保留。复杂 VLAN 和 IPv6 可在原生网络设置中管理。'));
+            contents.push(E('p',{class:'jw-subtle'},'复杂 VLAN 和 IPv6 可在原生网络设置中管理。'));
         }else if(this.step===1){
             if(main)contents.push(E('h4',{},'WAN 上网方式'));
             contents.push(this.choices('protocol',[
@@ -126,7 +126,7 @@ return view.extend({
         }else{
             contents.push(E('div',{class:'jw-plan-summary'},this.plan.summary.map(s=>E('p',{},[E('span',{},'✓'),s]))),
                 E('p',{},'应用后网络会暂时断开。请按 LuCI 的提示重新连接并确认，超时未确认将自动恢复。'),
-                E('p',{class:'jw-subtle'},'保留 ZeroTier 网络、设备身份和 MeowX 订阅。'));
+                E('p',{class:'jw-subtle'},'保留 MeowX 订阅和其它服务设置。'));
         }
         contents.push(E('div',{class:'jw-network-footer'},[
             E('a',{href:L.url('admin','network','network')},'打开原生网络设置 ↗'),E('div',{class:'jw-actions'},[
@@ -158,7 +158,7 @@ return view.extend({
             username:uci.get('network','wan','username')||'',password:uci.get('network','wan','password')||'',
             dnsPrimary:dns[0]||'',dnsOther:dns.slice(1).join(' '),dhcp:uci.get('dhcp','lan','ignore')!=='1'};
         this.content=E('section',{class:'jw-card jw-network-form'});this.steps=E('div',{class:'jw-network-progress'});this.draw();
-        const lan=data.status.zerotier?.lan||{},currentPorts=this.values.lanPorts.join('、');
+        const lan=data.status.lan||{},currentPorts=this.values.lanPorts.join('、');
         const sidebar=E('aside',{class:'jw-network-sidebar'},[
             E('section',{class:'jw-card'},[E('div',{class:'jw-between'},[E('h3',{},'当前连接'),E('span',{class:'jw-badge '+(lan.up?'jw-good':'jw-muted')},lan.up?'已连接':'待检查')]),
                 E('div',{class:'jw-connection-diagram'},[E('div',{},[icon('computer'),E('span',{},'终端')]),E('i'),E('div',{},[icon('router'),E('span',{},wan?'JohnnyWrt':'主路由')]),E('i'),E('div',{},[icon('router'),E('span',{},wan?'上级网络':'JohnnyWrt')])]),

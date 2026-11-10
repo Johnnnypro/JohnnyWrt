@@ -24,10 +24,10 @@ const result = scrubMenu(structuredClone(tree)).children.admin.children;
 assert.equal(result.vpn.satisfied, false, 'Empty VPN category must be hidden');
 assert(!result.system.children?.['johnny-update'], 'Standalone updater must be absent');
 const services = result.services.children;
-assert(services.zerotier.satisfied);
-assert(services.zerotier.order > services.meowx.order);
+assert(!services.zerotier, "ZeroTier service must be absent");
+assert(services.meowx.satisfied);
 tree.children.admin.children.vpn.children = {
     other: { satisfied: true, title: 'Other VPN', action: { type: 'view', path: 'other' } }
 };
 assert(scrubMenu(tree).children.admin.children.vpn.satisfied, 'New VPN apps must become visible');
-console.log('PASS: installed LuCI hides empty VPN, places ZeroTier under Services and retains future VPN entries');
+console.log('PASS: installed LuCI hides empty VPN, removes ZeroTier and retains future VPN entries');

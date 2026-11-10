@@ -30,20 +30,14 @@ cp "$source_root$bootstrap" "$root$bootstrap"
 mkdir -p "$root/etc"
 printf 'same-source\n' > "$root/etc/johnnywrt-build"
 printf 'test-build-2\n' > "$root/etc/johnnywrt-release"
-for name in luci-base luci-app-zerotier luci-app-meowx luci-app-argon-config; do
+for name in luci-base luci-app-meowx luci-app-argon-config; do
     cp "$source_root$menu/$name.json" "$root$menu/"
 done
 ucode "$helper" "$root"
 ucode -e '
     import { readfile } from "fs";
     let root = ARGV[0], menu = root + "/usr/share/luci/menu.d/";
-    let zt = json(readfile(menu + "luci-app-zerotier.json"));
-    let meow = json(readfile(menu + "luci-app-meowx.json"));
-    assert(zt["admin/services/zerotier"].order > meow["admin/services/meowx"].order);
-    assert(zt["admin/services/zerotier/config"].action.path == "zerotier/config");
-    assert(zt["admin/services/zerotier/interface"].action.path == "zerotier/interface");
-    assert(zt["admin/services/zerotier"].depends.acl[0] == "luci-app-zerotier");
-    assert(!zt["admin/vpn/zerotier"]);
+    assert(!readfile(menu + "luci-app-zerotier.json"));
     assert(json(readfile(menu + "luci-base.json"))["admin/vpn"].title == "VPN");
     let acl = json(readfile(root + "/usr/share/rpcd/acl.d/luci-app-argon-config.json"))["luci-app-argon-config"];
     assert(!acl.read.ubus["luci.argon"], "background mutations must not be readable RPCs");

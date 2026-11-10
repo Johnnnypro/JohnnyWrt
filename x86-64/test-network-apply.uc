@@ -12,7 +12,7 @@ let sid=rpc('session','create',{timeout:1200}).ubus_rpc_session;
 rpc('session','grant',{ubus_rpc_session:sid,scope:'uci',objects:[['*','*']]});
 function call(method,args) { return rpc('uci',method,{...args,ubus_rpc_session:sid}); }
 let original={},saved;
-for(let name in ['network','dhcp','firewall','meowx','zerotier']) original[name]=readfile('/etc/config/'+name);
+for(let name in ['network','dhcp','firewall','meowx']) original[name]=readfile('/etc/config/'+name);
 let u=cursor(),names={fixture_bridge:'johnny_bridge',fixture_lan:'johnny_lan',fixture_wan:'johnny_wan'};
 u.foreach('network','device',s=>{if(s.name=='br-lan')names.fixture_bridge=s['.name'];});
 u.foreach('firewall','zone',s=>{if(s.name=='lan')names.fixture_lan=s['.name'];if(s.name=='wan')names.fixture_wan=s['.name'];});
@@ -156,7 +156,7 @@ try {
         let live=cursor();
         assert(live.get('network','lan','proto')==(plan.role=='main'?'static':plan.protocol));
         assert(live.get('dhcp','lan','ignore')==(plan.role=='main'?'0':'1'));
-        assert(live.get('network','zerotier','proto')=='none');
+        assert(!live.get('network','zerotier'));
         if(plan.role=='main') {
             assert(live.get('network','wan','device')=='eth1');
             assert(live.get('network','wan','proto')==plan.protocol);

@@ -66,14 +66,14 @@ test('homepage renders without account and keeps unavailable telemetry unknown',
     assert(t.nodes.some(n=>n.textContent.includes('尚未登录订阅账户')));
     assert(t.nodes.some(n=>n.textContent==='暂无订阅用量信息'));
 });
-test('ZeroTier interfaces use network identity and state instead of kernel unknown',async()=>{
+test('homepage renders generic interfaces without the removed ZeroTier integration',async()=>{
     const t=setup('johnny-home.js');
-    t.setStatus({system:{},interfaces:[{name:'zt123',state:'unknown'}],zerotier:{node:{online:true},networks:[{id:'0123456789abcdef',portDeviceName:'zt123',status:'OK',assignedAddresses:['10.0.0.2/24']}]}});
+    t.setStatus({system:{},interfaces:[{name:'eth0',state:'unknown'}]});
     await t.view.render(await t.view.load());
-    assert(t.nodes.some(n=>n.textContent==='已加入网络'));
-    assert(t.nodes.some(n=>n.tag==='small'&&n.textContent==='zt123'));
-    assert(!t.nodes.some(n=>n.textContent==='状态未报告'));
+    assert(t.nodes.some(n=>n.textContent==='状态未报告'));
+    assert(!t.nodes.some(n=>n.textContent==='ZeroTier'));
 });
+
 test('homepage stop and restart need explicit confirmation',async()=>{
     const t=setup('johnny-home.js'); assert.equal(typeof t.view.render,'function'); await t.view.render(await t.view.load());
     await t.button('关闭').click(); assert.equal(t.modals.length,1);
@@ -109,18 +109,6 @@ test('homepage status failure disables controls and duplicate rendering replaces
     await t.view.render(await t.view.load()); assert.equal(t.polls.length,1);
     t.setStatus(new Error('offline')); await t.polls[0]();
     assert(t.button('开启').disabled); assert(t.nodes.some(n=>n.textContent.includes('状态读取失败')));
-});
-test('homepage cannot revive success after a failed refresh or removed network recovers',async()=>{
-    for(const unavailable of [new Error('offline'),{system:{},zerotier:{networks:[]}}]){
-        const t=setup('johnny-home.js'),network={id:'0123456789abcdef',status:'OK',portDeviceName:'zt123'};
-        const context={boot:'boot-1',running:true,node:{online:true,address:'node-1'},network},target={ip:'192.168.8.2',port:'443'};
-        const status={system:{},zerotier:{...context,networks:[network]}};
-        t.setStatus(status);await t.view.render(await t.view.load());
-        t.connectivity.target(network.id,target);t.connectivity.result(context,target,{outcome:'passed',timestamp:100});
-        t.setStatus(unavailable);await t.view.refresh();
-        t.setStatus(status);await t.view.refresh();
-        assert.match(t.connectivity.summary(context).label,/需重新检测/);
-    }
 });
 test('ZeroTier authorization button only checks actual state and never fakes readiness',async()=>{
     const t=setup('johnny-zerotier.js'); assert.equal(typeof t.view.render,'function');
@@ -160,7 +148,7 @@ test('homepage retains MeowX controls and interface state without a ZeroTier ser
     t.setStatus({meowx:{running:true},interfaces:[{name:'zt123',state:'unknown'}],zerotier:{running:true,node:{online:true},networks:[{id:'0123456789abcdef',portDeviceName:'zt123',status:'OK',allowManaged:false}],lan:{}}});
     await t.view.render(await t.view.load());
     assert(!t.nodes.some(n=>n.tag==='h3'&&n.textContent==='ZeroTier'));
-    assert(t.nodes.some(n=>n.textContent==='自动地址与路由未启用'));
+    assert(!t.nodes.some(n=>n.textContent==='自动地址与路由未启用'));
     for(const label of ['打开面板','重载','重启'])assert(t.button(label));
     assert(t.nodes.some(n=>n.href==='admin/services/meowx'&&n.textContent==='服务设置'));
 });
@@ -168,7 +156,7 @@ test('network wizard previews bypass settings without applying and preserves fie
     const t=setup('johnny-network.js');
     t.uci.sections=(config,type)=>config==='network'&&type==='device'?[{'.name':'bridge',name:'br-lan',type:'bridge',ports:['eth0']}]:[];
     t.uci.get=(config,section,key)=>section==='bridge'&&key==='ports'?['eth0']:null;
-    t.setStatus({interfaces:[{name:'eth0',physical:true,state:'up'},{name:'eth1',physical:true,state:'up'}],zerotier:{lan:{addresses:[{address:'10.147.0.2',mask:24}]}}});
+    t.setStatus({interfaces:[{name:'eth0',physical:true,state:'up'},{name:'eth1',physical:true,state:'up'}],lan:{addresses:[{address:'10.147.0.2',mask:24}]}});
     await t.view.render(await t.view.load());
     let applied=false;t.view.applyPlan=async()=>{applied=true;};
     await t.button('下一步 →').click();

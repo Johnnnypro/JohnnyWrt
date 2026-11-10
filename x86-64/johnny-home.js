@@ -6,12 +6,10 @@
 'require poll';
 'require tools.meowx as meowx';
 'require johnny.model as model';
-'require johnny.connectivity as connectivity';
 
 const getStatus = rpc.declare({object:'luci.johnny',method:'status',expect:{'':{}}});
 const getAccount = rpc.declare({object:'luci.meowx',method:'panel_status',expect:{'':{}}});
 const action = rpc.declare({object:'luci.johnny',method:'meow_action',params:['action'],expect:{'':{}}});
-const statusNames = {ready:'已连接',managed_disabled:'自动地址与路由未启用',denied:'等待授权',no_address:'等待分配 IP',offline:'节点离线',pending:'正在请求配置',not_found:'网络不存在',port_error:'接口异常',not_joined:'尚未加入网络'};
 function bytes(n) {
     if (n == null || !Number.isFinite(+n)) return '—';
     const units=['B','KB','MB','GB','TB']; let i=0;
@@ -112,7 +110,6 @@ return view.extend({
         return execute();
     },
     refresh: async function() {
-        const known=this.data?.zerotier?.networks||[];
         try {
             const next=await getStatus();
             this.previous=this.data; this.data=next;
@@ -120,14 +117,10 @@ return view.extend({
             if(operation) this.notice=operation.state==='done'?'MeowX 操作已完成':operation.state==='failed'?'MeowX 操作失败，请查看服务日志':'MeowX 正在处理，请稍候…';
             this.failure=null;
         } catch(e) {this.data=null;this.failure='状态读取失败，请检查连接后重试';}
-        for(const network of known){
-            const current=this.data?.zerotier?.networks?.find(n=>n.id===network.id);
-            connectivity.summary({...this.data?.zerotier,id:network.id,network:current});
-        }
         this.draw();
     },
     draw: function() {
-        const data=this.data||{}, system=data.system||{}, mx=data.meowx||{}, zt=data.zerotier||{};
+        const data=this.data||{}, system=data.system||{}, mx=data.meowx||{};
         const readonly=!L.hasViewPermission() || !this.data || this.busy || mx.operation?.state==='running';
         const current=this.subscriptionSnapshot?.current ?? (uci.get('meowx','config','profile')||'');
         const subscriptions=this.subscriptionSnapshot?.subscriptions ?? uci.sections('meowx','subscription');
@@ -186,7 +179,6 @@ return view.extend({
                 this.button('重启',()=>this.serviceAction('restart'),readonly),
                 link('服务设置','admin','services','meowx')])
         ],'view/meowx/logo-light.png',E('div',{class:'jw-switch'},[E('span',{},'服务开关'),toggle,E('span',{},mx.running?'已开启':'已关闭')]));
-        const networks=zt.networks||[], node=zt.node||{};
         let cpu=null;
         const a=this.previous?.system?.cpu,b=system.cpu;
         if(a&&b&&b.total>a.total&&b.idle>=a.idle) cpu=Math.max(0,Math.min(100,100*(1-(b.idle-a.idle)/(b.total-a.total))));
@@ -209,13 +201,8 @@ return view.extend({
             E('div',{class:'jw-rates'},[row('↓ 接收 · 蓝色',bytes(rates.rx)+'/s'),row('↑ 发送 · 紫色',bytes(rates.tx)+'/s')]),
             E('div',{class:'jw-chart','aria-label':'最近流量记录'},[graph(this.history)]),
             E('p',{class:'jw-subtle'},'按所选网口实时采样；订阅用量以提供方记录为准。')]);
-        const interfaces=card('网络接口',(data.interfaces||[]).map(x=>{
-            const network=networks.find(n=>n.portDeviceName===x.name);
-            if(!network)return row(x.name,({up:'已连接',down:'未连接',unknown:'状态未报告',dormant:'等待连接',lowerlayerdown:'下层链路未连接'}[x.state]||'状态未知'));
-            const state=model.ztState(node,network).state;
-            return E('div',{class:'jw-row'},[E('span',{class:'jw-interface-name'},[E('strong',{},'ZeroTier'),E('small',{},x.name+(networks.length>1?' · '+(network.name||network.id):''))]),
-                E('strong',{},state==='ready'?'已加入网络':statusNames[state])]);
-        }));
+        const interfaces=card('网络接口',(data.interfaces||[]).map(x=>
+            row(x.name,({up:'已连接',down:'未连接',unknown:'状态未报告',dormant:'等待连接',lowerlayerdown:'下层链路未连接'}[x.state]||'状态未知'))));
         this.content.replaceChildren(
             ...(this.failure?[E('p',{class:'alert-message warning'},this.failure)]:[]),
             ...(this.notice?[E('p',{class:'jw-subtle'},this.notice)]:[]),stats,

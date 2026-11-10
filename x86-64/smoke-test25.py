@@ -51,12 +51,17 @@ test "$(uci get luci.main.mediaurlbase)" = /luci-static/aurora
 test -d /www/luci-static/aurora
 test "$(uci get network.lan.proto)" = dhcp
 test "$(uci get dhcp.lan.ignore)" = 1
-test "$(uci get network.zerotier.proto)" = none
-test -z "$(uci -q get zerotier.earth.id)"
-test "$(uci get zerotier.global.enabled)" = 1
-test "$(uci get firewall.johnny_zerotier.masq)" = 0
-test "$(uci get firewall.zerotier_to_lan.dest)" = lan
-test "$(uci get firewall.lan_to_zerotier.dest)" = zerotier
+grep -qxF /etc/meowx/po0.json /lib/upgrade/keep.d/johnny-meowx
+test ! -e /etc/init.d/zerotier
+test ! -e /usr/bin/zerotier-cli
+test ! -e /usr/sbin/zerotier-one
+test ! -e /usr/share/luci/menu.d/luci-app-zerotier.json
+test ! -e /www/luci-static/resources/view/johnny/zerotier.js
+test ! -e /usr/libexec/johnny-zt-nat
+test ! -e /etc/hotplug.d/net/31-zerotier-interface
+test ! -e /etc/hotplug.d/iface/90-zerotier-rebind
+test -z "$(uci -q get network.zerotier)"
+test -z "$(uci -q get firewall.johnny_zt_nat)"
 test -x /usr/bin/meowx-core
 test -x /usr/sbin/tailscale
 test -x /usr/sbin/tailscaled
@@ -86,8 +91,6 @@ johnny_connectivity_snapshot before-matrix
 ucode /tmp/test-network-apply.uc
 johnny_connectivity_snapshot after-matrix
 test -z "$(jsonfilter -i /usr/share/luci/menu.d/luci-base.json -e '@["admin/nas"].title')"
-test -z "$(jsonfilter -i /usr/share/luci/menu.d/luci-app-zerotier.json -e '@["admin/vpn/zerotier"].title')"
-test "$(jsonfilter -i /usr/share/luci/menu.d/luci-app-zerotier.json -e '@["admin/services/zerotier/config"].action.path')" = zerotier/config
 test -z "$(jsonfilter -i /usr/share/luci/menu.d/johnny-update.json -e '@["admin/system/johnny-update"].title')"
 grep -q johnny_online_update /www/luci-static/resources/view/system/flash.js
 test -s /www/luci-static/resources/johnny/update.js
@@ -121,108 +124,18 @@ else
     exit "$?"
 fi
 apk add kmod-veth kmod-dummy tcpdump
-sh /tmp/test-johnny-probe.sh
+ip link add johnny_module_test type dummy
+ip link set johnny_module_test up
+ip link del johnny_module_test
 fw4 check
-ip link add zttest001 type dummy
-ip link set zttest001 up
-sleep 3
-test "$(ubus call network.interface.zerotier status | jsonfilter -e '@.device')" = zttest001
-ip addr add 192.0.2.2/32 dev zttest001
-test "$(ip -4 -o addr show dev zttest001 | awk '{print $4}')" = 192.0.2.2/32
-/etc/init.d/network reload
-sleep 3
-test "$(ubus call network.interface.zerotier status | jsonfilter -e '@.device')" = zttest001
-/etc/init.d/network restart
-for attempt in $(seq 1 30); do
-    [ "$(ubus call network.interface.zerotier status | jsonfilter -e '@.device')" = zttest001 ] && break
-    sleep 1
-done
-test "$(ubus call network.interface.zerotier status | jsonfilter -e '@.device')" = zttest001
-test "$(ip -4 -o addr show dev zttest001 | awk '{print $4}')" = 192.0.2.2/32
-ip link del zttest001
-sleep 2
-ip link add zttest002 type dummy
-ip link set zttest002 up
-sleep 3
-test "$(ubus call network.interface.zerotier status | jsonfilter -e '@.device')" = zttest002
-ip link del zttest002
-# Repeat the defaults that run on an upgrade with saved configuration.
+# Retained-settings defaults must not rewrite an existing network.
 uci set network.lan.hostname=preserved-test
 uci commit network
-sh /rom/etc/uci-defaults/99-custom.sh
-sh /rom/etc/uci-defaults/40_luci-zerotier
 sh /rom/etc/uci-defaults/99-zz-bypass
 sh /rom/etc/uci-defaults/99-zzz-johnnywrt
 test "$(uci get network.lan.hostname)" = preserved-test
 test "$(uci get network.lan.proto)" = dhcp
-test "$(uci get firewall.johnny_zerotier.name)" = zerotier
 fw4 check
-# Simulate a remote site and a local NAS with NO default/return route.
-# Preserve the failed state before the disposable guest is destroyed. A later
-# successful rerun cannot explain an intermittent forwarding failure.
-tcpdump -i any -n -l -vv 'arp or (icmp and host 198.18.0.2)' > /tmp/johnny-nat-packets.log 2>&1 &
-ip netns add johnny_remote
-ip netns add johnny_nas
-ip link add ztqa0 type veth peer name remote0
-ip link set remote0 netns johnny_remote
-ip link add lanqa0 type veth peer name nas0
-ip link set nas0 netns johnny_nas
-ip netns exec johnny_remote ip link set lo up
-ip netns exec johnny_remote ip link set remote0 up
-ip netns exec johnny_remote ip addr add 198.18.0.2/30 dev remote0
-ip netns exec johnny_remote ip route add 198.19.0.0/16 via 198.18.0.1
-ip netns exec johnny_remote ip route add 198.20.0.0/24 via 198.18.0.1
-ip netns exec johnny_nas ip link set lo up
-ip netns exec johnny_nas ip link set nas0 up
-ip link set ztqa0 up
-ip addr add 198.18.0.1/30 dev ztqa0
-sleep 3
-uci set network.lan.proto=static
-uci set network.lan.netmask=255.255.255.0
-uci set firewall.@defaults[0].fullcone=1
-uci commit firewall
-for subnet in 198.19.0 198.19.1; do
-    uci set network.lan.ipaddr="$subnet.1"
-    uci commit network
-    /etc/init.d/network reload
-    sleep 5
-    ip link set lanqa0 master br-lan
-    ip link set lanqa0 up
-    ip netns exec johnny_nas ip addr flush dev nas0
-    ip netns exec johnny_nas ip addr add "$subnet.2/24" dev nas0
-    # Check automatic LAN-event refresh BEFORE explicitly reloading fw4.
-    nft list set inet fw4 johnny_lan4 | grep "$subnet.0/24"
-    if [ "$subnet" = 198.19.1 ]; then
-        if nft list set inet fw4 johnny_lan4 | grep -q '198.19.0.0/24'; then
-            echo 'FAIL: previous LAN subnet remained in the NAT set'
-            exit 1
-        fi
-    fi
-    ip netns exec johnny_remote ping -c 2 -W 2 "$subnet.2"
-    /etc/init.d/firewall reload
-    sleep 2
-    fw4 check
-    ip netns exec johnny_remote ping -c 2 -W 2 "$subnet.2"
-    # Prove the test fails without return-path NAT, rather than merely pinging
-    # a peer which already knows how to route back to the remote network.
-    nft flush chain inet fw4 johnny_zt_lan
-    if ip netns exec johnny_remote ping -c 1 -W 1 "$subnet.2"; then
-        echo 'FAIL: NAS unexpectedly has a return path without NAT'
-        exit 1
-    fi
-    /etc/init.d/firewall reload
-    sleep 2
-    ip netns exec johnny_remote ping -c 2 -W 2 "$subnet.2"
-done
-# A routed destination outside the directly connected LAN must NOT get NAT.
-ip netns exec johnny_nas ip addr add 198.20.0.2/24 dev nas0
-ip route add 198.20.0.0/24 dev br-lan
-if ip netns exec johnny_remote ping -c 1 -W 1 198.20.0.2; then
-    echo 'FAIL: return-path NAT leaked beyond the connected LAN'
-    exit 1
-fi
-nft list set inet fw4 johnny_lan4
-nft list chain inet fw4 johnny_zt_lan
 uname -r
 echo JOHNNY_BOOT_TEST_PASSED
 '''.strip()
@@ -328,4 +241,4 @@ finally:
 if not passed:
     print(output[-16000:].decode(errors="replace"))
     raise SystemExit("Boot checks failed or timed out; see boot-test.log")
-print("PASS: boot, branding, APK kernel feed, offline MeowX, device rebinding and scoped ZeroTier return-path NAT")
+print("PASS: boot, branding, APK kernel feed, offline MeowX, native network modes and ZeroTier absence")

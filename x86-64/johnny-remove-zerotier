@@ -1,0 +1,21 @@
+#!/bin/sh
+# Remove only the legacy integration owned by this firmware.
+set -e
+root=${1:-}
+for config in network firewall; do
+    file="$root/etc/config/$config"
+    [ -f "$file" ] || continue
+    temporary=$(mktemp "$file.XXXXXX")
+    cp -p "$file" "$temporary"
+    awk -v config="$config" '
+        $1 == "config" {
+            name = $3
+            gsub(/[\047\042]/, "", name)
+            if (config == "network") skip = name == "zerotier"
+            else skip = name ~ /^(johnny_zerotier|zerotier_to_lan|lan_to_zerotier|johnny_zt_nat|zerotier_input|zerotier_srcnat|zerotier_forward)$/
+        }
+        !skip { print }
+    ' "$file" > "$temporary"
+    if cmp -s "$file" "$temporary"; then rm "$temporary"; else mv "$temporary" "$file"; fi
+done
+rm -f "$root/etc/config/zerotier" "$root/etc/rc.d/"*zerotier

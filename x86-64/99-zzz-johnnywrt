@@ -22,10 +22,7 @@ uci set aurora.theme.favicon_ico='johnnywrt.svg'
 uci set aurora.theme.icon_cache_version='johnny-1'
 uci commit aurora
 
-uci set firewall.johnny_zt_nat='include'
-uci set firewall.johnny_zt_nat.type='script'
-uci set firewall.johnny_zt_nat.path='/usr/libexec/johnny-zt-nat'
-uci set firewall.johnny_zt_nat.fw4_compatible='1'
-uci commit firewall
+touch /etc/johnnywrt-configured
+sh /usr/libexec/johnny-remove-zerotier || exit 1
 ucode /usr/libexec/johnny-dashboard-defaults.uc || exit 1
 exit 0

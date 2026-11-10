@@ -1,0 +1,14 @@
+/etc/config/meowx
+/etc/meowx/po0.json
+/etc/meowx/panel.json
+/etc/meowx/mesh.json
+/etc/meowx/mesh-snat.nft
+/etc/meowx/mesh-dnat.nft
+/etc/tailscale/
+/etc/meowx/profiles/
+/etc/meowx/subscriptions/
+/etc/meowx/mixin.yaml
+/etc/meowx/run/providers/rule/
+/etc/meowx/run/providers/proxy/
+/etc/meowx/run/cache.db
+/etc/johnnywrt-configured

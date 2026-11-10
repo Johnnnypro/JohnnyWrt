@@ -27,6 +27,7 @@ parser.add_argument('--accel', choices=('tcg', 'kvm'), default='tcg')
 parser.add_argument('--reboot-only', action='store_true')
 parser.add_argument('--package-migration-only', action='store_true')
 parser.add_argument('--with-meowx-mesh', action='store_true')
+parser.add_argument('--without-zerotier', action='store_true')
 args = parser.parse_args()
 base, image = args.base.resolve(), args.image.resolve()
 disk = image.parent / 'upgrade-test.img'
@@ -206,6 +207,27 @@ def firewall_migration_hashes(config, fields):
     return {name: hashlib.sha256(data).hexdigest() for name, data in targets.items()}
 
 
+def zerotier_removal_targets(network, firewall):
+    names = ('johnny_zerotier', 'zerotier_to_lan', 'lan_to_zerotier', 'johnny_zt_nat',
+             'zerotier_input', 'zerotier_srcnat', 'zerotier_forward')
+    def removed(data, names):
+        parts = re.split(rb'(?m)(?=^config\s)', data)
+        result = []
+        for part in parts:
+            header = re.match(rb'config\s+\S+\s+[\x27\x22]?([^\s\x27\x22]+)', part)
+            if not header or header[1].decode() not in names:
+                result.append(part)
+        return result
+    network = b''.join(removed(network, ('zerotier',)))
+    parts = removed(firewall, names)
+    meowx = [part for part in parts if re.match(rb"config include ['\"]meowx['\"]\s*\n", part)]
+    variants = [b''.join(parts)]
+    if len(meowx) == 1:
+        variants.append(b''.join(part for part in parts if part != meowx[0]) + meowx[0])
+    return {'/etc/config/network': [hashlib.sha256(network).hexdigest()],
+            '/etc/config/firewall': [hashlib.sha256(data).hexdigest() for data in variants]}
+
+
 def retention_snapshot(client, paths, phase):
     sums = dict(line.split(maxsplit=1)[::-1] for line in run(client, 'sha256sum ' + ' '.join(paths)).splitlines())
     config = run(client, 'cat /etc/config/meowx', sensitive=True).encode()
@@ -220,7 +242,7 @@ def retention_snapshot(client, paths, phase):
             prefixes[','.join(names)] = hashlib.sha256(config[:-len(addition)]).hexdigest()
     # Record names and hashes only: never put passwords or identity keys in logs.
     fields = {}
-    for line in run(client, 'uci -q show network; uci -q show dhcp; uci -q show firewall; uci -q show meowx; uci -q show zerotier', sensitive=True).splitlines():
+    for line in run(client, 'uci -q show network; uci -q show dhcp; uci -q show firewall; uci -q show meowx; test ! -f /etc/config/zerotier || uci -q show zerotier', sensitive=True).splitlines():
         if '=' not in line or not line.startswith(('network.', 'dhcp.', 'firewall.', 'meowx.', 'zerotier.')):
             continue
         name, _, value = line.partition('=')
@@ -247,6 +269,15 @@ def assert_retained(baseline, current):
     expected_fields = dict(baseline['uci_fields'])
     defaults = {'ggy': ['enabled'], 'akile': ['enabled'], 'mesh': ['enabled', 'force_map', 'router_access']}
     migrated = False
+    removal = baseline.get('without_zerotier')
+    if removal and all(current['files'].get(path) in hashes for path, hashes in removal.items()):
+        changed = [path for path in changed if path not in removal]
+        names = ('network.zerotier', 'firewall.johnny_zerotier', 'firewall.zerotier_to_lan',
+                 'firewall.lan_to_zerotier', 'firewall.johnny_zt_nat', 'firewall.zerotier_input',
+                 'firewall.zerotier_srcnat', 'firewall.zerotier_forward')
+        expected_fields = {key: value for key, value in expected_fields.items()
+                           if not key.startswith('zerotier.') and not any(key == name or key.startswith(name + '.') for name in names)}
+        migrated = True
     for mask in range(1, 8):
         names = [name for i, name in enumerate(defaults) if mask & (1 << i)]
         if meowx not in changed or current.get('meowx_before_defaults', {}).get(','.join(names)) != baseline['files'][meowx]:
@@ -362,7 +393,29 @@ test -s /etc/zerotier/identity.secret
         backup_list = run(client, 'sysupgrade -l').splitlines()
         for path in retained:
             assert path in backup_list, f'Not preserved by sysupgrade: {path}'
+    run(client, r'''set -e
+uci set meowx.config.enabled=0
+uci set meowx.ggy=ggy
+uci set meowx.ggy.enabled=1
+uci add_list meowx.ggy.token='SYNTHETIC_GGY_KEEP'
+uci set meowx.akile=akile
+uci set meowx.akile.enabled=1
+uci set meowx.akile.key='ak_SYNTHETIC_KEEP'
+uci add_list meowx.akile.node='SYNTHETIC_NODE_KEEP'
+uci commit meowx
+printf '%s\n' '{"enabled":true,"manual":[{"address":"127.0.0.1:9","token":"pgnfw_SYNTHETIC_KEEP"}],"report_urls":["https://127.0.0.1:9/api/firewall/pgnfw_SYNTHETIC_KEEP"]}' > /etc/meowx/po0.json
+touch /etc/sysupgrade.conf
+grep -qxF /etc/meowx/po0.json /etc/sysupgrade.conf || echo /etc/meowx/po0.json >> /etc/sysupgrade.conf
+''', sensitive=True)
+    retained += ['/etc/meowx/po0.json', '/etc/sysupgrade.conf']
+    if args.without_zerotier:
+        retained = [path for path in retained if 'zerotier' not in path]
     baseline = retention_snapshot(client, retained, 'baseline')
+    if args.without_zerotier:
+        baseline['without_zerotier'] = zerotier_removal_targets(
+            run(client, 'cat /etc/config/network', sensitive=True).encode(),
+            run(client, 'cat /etc/config/firewall', sensitive=True).encode())
+        (image.parent / 'retention-baseline.json').write_text(json.dumps(baseline, indent=2))
     if args.package_migration_only:
         print(run(client, 'apk update && apk upgrade meowx meowx-core luci-app-meowx luci-i18n-meowx-zh-cn'), flush=True)
         verify_package_versions(client)
@@ -405,7 +458,7 @@ test -s /etc/zerotier/identity.secret
             print('PASS: only verified vendor default additions/include relocation occurred; original configuration is retained', flush=True)
         with client.open_sftp() as sftp:
             sftp.put(str(Path(__file__).with_name('test-update-metadata.sh')), '/tmp/test-update-metadata.sh')
-            sftp.put(str(Path(__file__).with_name('test-ui-layout.sh')), '/tmp/test-ui-layout.sh')
+            sftp.put(str(Path(__file__).with_name('test-ui-layout.sh' if args.without_zerotier else 'test-legacy-ui-layout.sh')), '/tmp/test-ui-layout.sh')
         run(client, 'sh /tmp/test-update-metadata.sh')
         run(client, 'sh /tmp/test-ui-layout.sh')
         menu_fixture = image.parent / 'luci-menu-test'
@@ -415,7 +468,7 @@ test -s /etc/zerotier/identity.secret
             for name in sftp.listdir('/usr/share/luci/menu.d'):
                 if name.endswith('.json'):
                     sftp.get('/usr/share/luci/menu.d/' + name, str(menu_fixture / name))
-        subprocess.run(['node', str(Path(__file__).with_name('test-luci-menu.js')), str(menu_fixture)], check=True)
+        subprocess.run(['node', str(Path(__file__).with_name('test-luci-menu.js' if args.without_zerotier else 'test-legacy-luci-menu.js')), str(menu_fixture)], check=True)
         status = json.loads(run(client, '/usr/libexec/johnny-update status'))
         assert status['state'] == 'idle' and status['current'].startswith('Johnnywrt-ISO-')
         assert status['repository'] == 'https://github.com/Johnnnypro/JohnnyWrt/releases'
@@ -428,18 +481,32 @@ test ! -e /usr/sbin/quickstart
 test -x /usr/bin/quickstart
 test ! -e /www/luci-static/resources/johnny/custom-style.js
 test -s /usr/share/rpcd/ucode/luci.johnny
-for page in home network zerotier; do test -s /www/luci-static/resources/view/johnny/$page.js; done
+for page in home network; do test -s /www/luci-static/resources/view/johnny/$page.js; done
 ubus call luci.johnny status > /tmp/dashboard-status.json
 test -n "$(jsonfilter -i /tmp/dashboard-status.json -e '@.system.uptime')"
 test -s /etc/johnnywrt-build
 test -s /usr/share/rpcd/acl.d/johnny-update.json
 test -s /www/luci-static/resources/johnny/update.js
 grep -q johnny_online_update /www/luci-static/resources/view/system/flash.js
-test "$(jsonfilter -i /usr/share/luci/menu.d/luci-app-zerotier.json -e '@["admin/services/zerotier/config"].action.path')" = zerotier/config
-test -z "$(jsonfilter -i /usr/share/luci/menu.d/luci-app-zerotier.json -e '@["admin/vpn/zerotier"].title')"
 /usr/bin/meowx-core -t -d /etc/meowx/run -f /etc/meowx/subscriptions/upgrade-test.yaml
 fw4 check
 ''')
+        if args.without_zerotier:
+            run(client, 'test ! -e /etc/init.d/zerotier && test ! -e /usr/share/luci/menu.d/luci-app-zerotier.json && test ! -e /usr/libexec/johnny-zt-nat && test -z "$(uci -q get network.zerotier)"')
+            verify_package_versions(client)
+            run(client, r'''set -e
+# Prove keep.d works independently of the one-time preparation on old firmware.
+saved=$(mktemp)
+cp /etc/sysupgrade.conf "$saved"
+trap 'cp "$saved" /etc/sysupgrade.conf; rm -f "$saved" /tmp/whitelist-backup.tgz' EXIT
+sed '\|^/etc/meowx/po0.json$|d' "$saved" > /etc/sysupgrade.conf
+sysupgrade -l | grep -qxF /etc/meowx/po0.json
+sysupgrade -b /tmp/whitelist-backup.tgz >/dev/null
+expected=$(sha256sum /etc/meowx/po0.json | cut -d ' ' -f1)
+actual=$(tar -xzOf /tmp/whitelist-backup.tgz etc/meowx/po0.json | sha256sum | cut -d ' ' -f1)
+test "$actual" = "$expected"
+''', sensitive=True)
+            assert_retained(baseline, retention_snapshot(client, retained, f'round-{round_number}-after-backup-check'))
         print(f'PASS: upgrade round {round_number}, SSH authentication, retained settings and service checks', flush=True)
     client.close()
     completed = True

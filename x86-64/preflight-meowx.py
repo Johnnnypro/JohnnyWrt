@@ -26,6 +26,9 @@ files = {
     'johnny-dashboard-worker.js': 'usr/libexec/johnny-dashboard-worker.js',
     'johnny-meowx-bridge.js': 'www/luci-static/resources/johnny/meowx-bridge.js',
     '99-zzz-johnnywrt': 'etc/uci-defaults/99-zzz-johnnywrt',
+    'johnny-remove-zerotier': 'usr/libexec/johnny-remove-zerotier',
+    'johnny-menu.json': 'usr/share/luci/menu.d/johnny.json',
+    'johnny-meowx.keep': 'lib/upgrade/keep.d/johnny-meowx',
 }
 payload = io.BytesIO()
 with tarfile.open(fileobj=payload, mode='w:gz') as archive:
@@ -39,9 +42,9 @@ inject = "set -ex\ncat > /tmp/apple-overlay.b64 <<'APPLE_EOF'\n" + encoded + '\n
 inject += "ucode -e 'import {readfile,writefile} from \"fs\"; writefile(\"/tmp/apple-overlay.tgz\", b64dec(replace(readfile(\"/tmp/apple-overlay.b64\"), /\\s/g, \"\")));'\n"
 inject += "echo '" + hashlib.sha256(payload.getvalue()).hexdigest() + "  /tmp/apple-overlay.tgz' | sha256sum -c -\n"
 inject += 'tar xzf /tmp/apple-overlay.tgz -C /\napk update\napk upgrade meowx meowx-core luci-app-meowx luci-i18n-meowx-zh-cn\napk add tailscale\n'
-inject += 'sh /etc/uci-defaults/99-zzz-johnnywrt\n/etc/init.d/rpcd restart\nsleep 2\n'
+inject += '/etc/init.d/zerotier stop\napk del luci-i18n-zerotier-zh-cn luci-app-zerotier zerotier\nrm -f /www/luci-static/resources/view/johnny/zerotier.js /usr/libexec/johnny-zt-nat /etc/hotplug.d/net/31-zerotier-interface /etc/hotplug.d/iface/90-zerotier-rebind /etc/nftables.d/30-johnny-zt-lan.nft /usr/share/nftables.d/chain-pre/srcnat/30-johnny-zt-lan.nft\nsh /etc/uci-defaults/99-zzz-johnnywrt\n/etc/init.d/rpcd restart\nsleep 2\n'
 runner = root / 'smoke-test25.py'
-source = runner.read_text()
+source = runner.read_text().replace('sh /rom/etc/uci-defaults/99-zz-bypass', 'true').replace('sh /rom/etc/uci-defaults/99-zzz-johnnywrt', 'sh /etc/uci-defaults/99-zzz-johnnywrt')
 anchor = "checks = 'set -e\\n' + checks"
 assert source.count(anchor) == 1, 'Smoke runner changed; adapt the source overlay before testing'
 source = source.replace(anchor, 'checks = ' + repr(inject) + ' + checks')

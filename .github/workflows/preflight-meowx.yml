@@ -15,6 +15,9 @@ jobs:
           sh x86-64/test-ssh-qos.sh
           sh x86-64/test-custom25.sh
           sh x86-64/test-distfeeds.sh
+          sh x86-64/test-remove-zerotier.sh
+          node --test x86-64/test-meowx-retention.js x86-64/test-meowx-mesh-feedback.js x86-64/test-no-zerotier.js
+          python3 x86-64/test-zerotier-migration.py
           node --test x86-64/test-update-ui.js x86-64/test-johnny-model.js x86-64/test-johnny-ui.js x86-64/test-johnny-connectivity.js x86-64/test-johnny-theme.js x86-64/test-johnny-theme-ui.js x86-64/test-meowx-dashboard.js
           python3 x86-64/test-upgrade-readiness.py
           python3 x86-64/test-retention-evidence.py
@@ -28,32 +31,35 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir diagnostic previous-release
-          gh release download Johnnywrt-ISO-25.12.2-1793414110 --repo Johnnnypro/JohnnyWrt --pattern Johnnywrt-x86_64-squashfs-combined-efi.img.gz --dir diagnostic
+          gh release download Johnnywrt-ISO-25.12.2-1794270621 --repo Johnnnypro/JohnnyWrt --pattern Johnnywrt-x86_64-squashfs-combined-efi.img.gz --dir diagnostic
           mv diagnostic/*.img.gz diagnostic/firmware.img.gz
-          echo 'f5bcd15b8677364ef84ae0c544bf0ff4f9c9c7645c1f723724239884d670eb58  diagnostic/firmware.img.gz' | sha256sum -c -
+          echo '1f3800a23349495d7ddaf20a031556e62ddc64186e24def8f679878abd90aab6  diagnostic/firmware.img.gz' | sha256sum -c -
           gh release download Johnnywrt-ISO-25.12.2-1793177592 --repo Johnnnnnnnyx/ImmortalWrt-ImageBuilder --pattern Johnnywrt-x86_64-squashfs-combined-efi.img.gz --dir previous-release
           echo 'aaf4f7cc25d026f5e24d38affdfcf589c6f1f50ac8883c88ffd48edef9df1956  previous-release/Johnnywrt-x86_64-squashfs-combined-efi.img.gz' | sha256sum -c -
           gzip -dc previous-release/*.img.gz > previous-release/base.img
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf
           python3 -m pip install paramiko==3.5.1
+          test -c /dev/kvm
+          sudo -n -- runuser -u "$(id -un)" -g kvm -- test -r /dev/kvm
+          sudo -n -- runuser -u "$(id -un)" -g kvm -- test -w /dev/kvm
       - name: Verify current MeowX source through full CI serial smoke
         run: python3 x86-64/preflight-meowx.py diagnostic/firmware.img.gz
       - name: Verify official MeowX migration from original legacy settings
         run: |
           mkdir vendor-migration
           cp diagnostic/firmware.img.gz vendor-migration/firmware.img.gz
-          python3 x86-64/test-sysupgrade.py previous-release/base.img vendor-migration/firmware.img.gz --package-migration-only
+          sudo -n -- runuser -u "$(id -un)" -g kvm -- "$(command -v python3)" x86-64/test-sysupgrade.py previous-release/base.img vendor-migration/firmware.img.gz --package-migration-only --accel kvm
       - name: Verify the saved release upgrade baseline
         run: |
-          python3 x86-64/test-sysupgrade.py previous-release/base.img diagnostic/firmware.img.gz
-          echo 'f5bcd15b8677364ef84ae0c544bf0ff4f9c9c7645c1f723724239884d670eb58  diagnostic/firmware.img.gz' | sha256sum -c -
+          sudo -n -- runuser -u "$(id -un)" -g kvm -- "$(command -v python3)" x86-64/test-sysupgrade.py previous-release/base.img diagnostic/firmware.img.gz --accel kvm
+          echo '1f3800a23349495d7ddaf20a031556e62ddc64186e24def8f679878abd90aab6  diagnostic/firmware.img.gz' | sha256sum -c -
       - name: Verify installed Mesh identity survives a native reboot
         run: |
           mkdir mesh-migration
           cp diagnostic/firmware.img.gz mesh-migration/firmware.img.gz
           gzip -dc diagnostic/firmware.img.gz > mesh-migration/base.img
-          python3 x86-64/test-sysupgrade.py mesh-migration/base.img mesh-migration/firmware.img.gz --package-migration-only --with-meowx-mesh
+          sudo -n -- runuser -u "$(id -un)" -g kvm -- "$(command -v python3)" x86-64/test-sysupgrade.py mesh-migration/base.img mesh-migration/firmware.img.gz --package-migration-only --accel kvm --with-meowx-mesh
       - name: Save read-only verification evidence
         if: always()
         uses: actions/upload-artifact@v4

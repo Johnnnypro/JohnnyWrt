@@ -89,22 +89,6 @@ if (index(flash, directive) < 0) {
 }
 assert(index(flash, "'johnny_online_update'") >= 0, 'Incomplete LuCI firmware integration');
 
-let zt_path = menu + 'luci-app-zerotier.json';
-let zt = json(readfile(zt_path));
-let meow = json(readfile(menu + 'luci-app-meowx.json'));
-for (let key in keys(zt)) {
-    if (key == 'admin/vpn/zerotier' || index(key, 'admin/vpn/zerotier/') == 0) {
-        zt[replace(key, 'admin/vpn/zerotier', 'admin/services/zerotier')] = zt[key];
-        delete zt[key];
-    }
-}
-assert(zt['admin/services/zerotier'], 'Missing ZeroTier menu');
-assert(meow['admin/services/meowx'], 'Missing MeowX menu');
-zt['admin/services/zerotier'].order = (meow['admin/services/meowx'].order || 10) + 1;
-
-// LuCI scrubMenu() hides empty firstchild categories dynamically. Keep the
-// parent definition so installing another VPN app can make it visible again.
-
 // Validate everything before changing files. uci-defaults retries write failures.
 for (let path, content in {
     [header_path]: header,
@@ -114,6 +98,5 @@ for (let path, content in {
     [root + '/www/luci-static/resources/johnny/argon-config.js']: argon_modal,
     [argon_acl_path]: sprintf('%J\n', argon_acl),
     [argon_menu_path]: sprintf('%J\n', argon_menu),
-    [flash_path]: flash,
-    [zt_path]: sprintf('%J\n', zt)
+    [flash_path]: flash
 }) assert(writefile(path, content) == length(content), 'Cannot write ' + path);

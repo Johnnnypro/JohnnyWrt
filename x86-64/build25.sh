@@ -4,7 +4,6 @@
 source shell/apk-custom-packages.sh
 if [ "${CUSTOM_BYPASS:-0}" = "1" ]; then
   set -e
-  CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-zerotier-zh-cn"
   CUSTOM_PACKAGES="$CUSTOM_PACKAGES meowx-core meowx luci-app-meowx luci-i18n-meowx-zh-cn tailscale"
   CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-theme-aurora"
   CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-mod-rpc luci-lib-ipkg luci-compat libuci-lua ucode-mod-socket ip-full"
@@ -81,12 +80,12 @@ if [ "${CUSTOM_BYPASS:-0}" = "1" ]; then
   echo "$MEOWX_FEED" >> repositories
   cp keys/meowx.pem files/etc/apk/keys/meowx.pem
   echo "$MEOWX_FEED" > files/etc/apk/repositories.d/meowx.list
-  cp custom25/31-zerotier-interface files/etc/hotplug.d/net/31-zerotier-interface
-  cp custom25/90-zerotier-rebind files/etc/hotplug.d/iface/90-zerotier-rebind
   cp custom25/99-zz-bypass files/etc/uci-defaults/99-zz-bypass
   cp custom25/99-zzz-johnnywrt files/etc/uci-defaults/99-zzz-johnnywrt
+  mkdir -p files/lib/upgrade/keep.d
+  cp custom25/johnny-meowx.keep files/lib/upgrade/keep.d/johnny-meowx
   mkdir -p files/usr/libexec files/etc/nftables.d files/usr/share/nftables.d/chain-pre/srcnat files/www/luci-static/aurora/images
-  cp custom25/johnny-fix-distfeeds custom25/johnny-zt-nat custom25/johnny-ssh-qos files/usr/libexec/
+  cp custom25/johnny-fix-distfeeds custom25/johnny-remove-zerotier custom25/johnny-ssh-qos files/usr/libexec/
   printf '%s\n' "${BUILD_ID:-development}" > files/etc/johnnywrt-build
   printf '%s\n' "${RELEASE_TAG:-development}" > files/etc/johnnywrt-release
   printf '%s\n' "${RELEASE_VERSION:-development}" > files/etc/johnnywrt-version
@@ -101,30 +100,26 @@ if [ "${CUSTOM_BYPASS:-0}" = "1" ]; then
   cp custom25/johnny-update-acl.json files/usr/share/rpcd/acl.d/johnny-update.json
   mkdir -p files/usr/share/rpcd/ucode files/www/luci-static/resources/view/johnny
   cp custom25/johnny-dashboard.uc files/usr/share/rpcd/ucode/luci.johnny
-  cp custom25/johnny-probe.uc files/usr/libexec/johnny-probe.uc
   cp custom25/johnny-dashboard-acl.json files/usr/share/rpcd/acl.d/johnny.json
   cp custom25/johnny-theme-acl.json files/usr/share/rpcd/acl.d/johnny-theme.json
   cp custom25/johnny-menu.json files/usr/share/luci/menu.d/johnny.json
   cp custom25/johnny-model.js files/www/luci-static/resources/johnny/model.js
-  cp custom25/johnny-connectivity.js files/www/luci-static/resources/johnny/connectivity.js
   cp custom25/johnny-appearance.js files/www/luci-static/resources/johnny/appearance.js
   mkdir -p files/usr/bin files/etc/profile.d
   cp custom25/quickstart files/usr/bin/quickstart
   chmod 755 files/usr/bin/quickstart
   printf '[ -t 1 ] && printf "\\nNetwork settings: run quickstart to set the IP address, gateway and DNS.\\n"\n' > files/etc/profile.d/90-johnny-network.sh
-  cp custom25/johnny.css custom25/johnny-native.css custom25/zerotier.png files/www/luci-static/resources/johnny/
-  for view in home network zerotier theme; do
+  cp custom25/johnny.css custom25/johnny-native.css files/www/luci-static/resources/johnny/
+  for view in home network theme; do
     cp "custom25/johnny-$view.js" "files/www/luci-static/resources/view/johnny/$view.js"
   done
-  cp custom25/30-johnny-zt-lan.nft files/etc/nftables.d/
-  printf 'jump johnny_zt_lan\n' > files/usr/share/nftables.d/chain-pre/srcnat/30-johnny-zt-lan.nft
   cp custom25/johnnywrt.svg files/www/luci-static/aurora/images/johnnywrt.svg
-  chmod 755 files/usr/libexec/johnny-fix-distfeeds files/usr/libexec/johnny-zt-nat files/usr/libexec/johnny-ssh-qos files/etc/uci-defaults/99-zzz-johnnywrt
+  chmod 755 files/usr/libexec/johnny-fix-distfeeds files/usr/libexec/johnny-remove-zerotier files/usr/libexec/johnny-ssh-qos files/etc/uci-defaults/99-zzz-johnnywrt
   # The shared defaults rewrite LAN/WAN even after a settings-preserving upgrade.
   printf '#!/bin/sh\nexit 0\n' > files/etc/uci-defaults/99-custom.sh
   # This shell fragment is unnecessary here and is not a valid UCI config.
   rm -f files/etc/config/pppoe-settings
-  chmod 755 files/etc/hotplug.d/net/31-zerotier-interface files/etc/hotplug.d/iface/90-zerotier-rebind files/etc/uci-defaults/99-zz-bypass
+  chmod 755 files/etc/uci-defaults/99-zz-bypass
 fi
 
 # 输出调试信息
@@ -149,6 +144,9 @@ PACKAGES="$PACKAGES luci-i18n-filemanager-zh-cn"
 # ======== shell/apk-custom-packages.sh =======
 # 合并imm仓库以外的第三方插件 暂时注释
 PACKAGES="$PACKAGES $CUSTOM_PACKAGES"
+if [ "${CUSTOM_BYPASS:-0}" = "1" ]; then
+  PACKAGES="$PACKAGES -zerotier -luci-app-zerotier -luci-i18n-zerotier-zh-cn"
+fi
 
 
 # 判断是否需要编译 Docker 插件

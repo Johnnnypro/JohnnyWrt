@@ -119,7 +119,7 @@ class SmokeInputTest(unittest.TestCase):
 
     def run_zerotier_readiness(self, ready_after, api_after):
         # Execute the real precondition before the test captures/mutates config.
-        source = (root / 'test-dashboard-api.sh').read_text().split('saved=$(mktemp -d)', 1)[0]
+        source = (root / 'test-legacy-zerotier-api.sh').read_text().split('saved=$(mktemp -d)', 1)[0]
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)
             identity = target / 'identity.secret'
