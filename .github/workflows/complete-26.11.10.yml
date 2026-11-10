@@ -71,7 +71,7 @@ jobs:
             exit 1
           fi
           grep -F 'PermissionError: [Errno 13]' kvm-denied.log
-          sudo -n -u "$(id -un)" -g kvm -- "$(command -v python3)" - "$(id -u)" <<'PY' | tee kvm-permissions.log
+          sudo -n -- runuser -u "$(id -un)" -g kvm -- "$(command -v python3)" - "$(id -u)" <<'PY' | tee kvm-permissions.log
           import fcntl, grp, json, os, subprocess, sys
           assert os.geteuid() == int(sys.argv[1]) != 0
           assert os.getegid() == grp.getgrnam('kvm').gr_gid
@@ -111,7 +111,7 @@ jobs:
       - name: Verify retained-settings upgrades and real SSH login
         run: |
           image=$(find bin/targets/x86/64 -maxdepth 1 -name '*squashfs-combined-efi.img.gz' -print -quit)
-          sudo -n -u "$(id -un)" -g kvm -- "$(command -v python3)" x86-64/test-sysupgrade.py previous-release/base.img "$image" --accel kvm
+          sudo -n -- runuser -u "$(id -un)" -g kvm -- "$(command -v python3)" x86-64/test-sysupgrade.py previous-release/base.img "$image" --accel kvm
 
       - name: Verify latest release to new and new to new upgrades
         env:
@@ -123,7 +123,7 @@ jobs:
           gzip -dc latest-release/*.img.gz > latest-release/base.img
           image=$(find bin/targets/x86/64 -maxdepth 1 -name '*squashfs-combined-efi.img.gz' -print -quit)
           cp "$image" latest-upgrade/firmware.img.gz
-          sudo -n -u "$(id -un)" -g kvm -- "$(command -v python3)" x86-64/test-sysupgrade.py latest-release/base.img latest-upgrade/firmware.img.gz --with-meowx-mesh --accel kvm
+          sudo -n -- runuser -u "$(id -un)" -g kvm -- "$(command -v python3)" x86-64/test-sysupgrade.py latest-release/base.img latest-upgrade/firmware.img.gz --with-meowx-mesh --accel kvm
 
       - name: Build ISO installer from verified firmware
         run: |

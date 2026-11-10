@@ -116,13 +116,13 @@ jobs:
           python3 -m pip install paramiko==3.5.1
           test -c /dev/kvm
           test "$(stat -c %G /dev/kvm)" = kvm
-          sudo -n -u "$(id -un)" -g kvm -- test -r /dev/kvm
-          sudo -n -u "$(id -un)" -g kvm -- test -w /dev/kvm
+          sudo -n -- runuser -u "$(id -un)" -g kvm -- test -r /dev/kvm
+          sudo -n -- runuser -u "$(id -un)" -g kvm -- test -w /dev/kvm
           mkdir -p previous-release
           gh release download Johnnywrt-ISO-25.12.2-1793177592 --repo Johnnnnnnnyx/ImmortalWrt-ImageBuilder --pattern Johnnywrt-x86_64-squashfs-combined-efi.img.gz --dir previous-release
           echo 'aaf4f7cc25d026f5e24d38affdfcf589c6f1f50ac8883c88ffd48edef9df1956  previous-release/Johnnywrt-x86_64-squashfs-combined-efi.img.gz' | sha256sum -c -
           gzip -dc previous-release/Johnnywrt-x86_64-squashfs-combined-efi.img.gz > previous-release/base.img
-          sudo -n -u "$(id -un)" -g kvm -- "$(command -v python3)" x86-64/test-sysupgrade.py previous-release/base.img previous-release/base.img --reboot-only --accel kvm
+          sudo -n -- runuser -u "$(id -un)" -g kvm -- "$(command -v python3)" x86-64/test-sysupgrade.py previous-release/base.img previous-release/base.img --reboot-only --accel kvm
 
       - name: Build customized bypass firmware
         env:
@@ -175,7 +175,7 @@ jobs:
       - name: Verify retained-settings upgrades and real SSH login
         run: |
           image=$(find bin/targets/x86/64 -maxdepth 1 -name '*squashfs-combined-efi.img.gz' -print -quit)
-          sudo -n -u "$(id -un)" -g kvm -- "$(command -v python3)" x86-64/test-sysupgrade.py previous-release/base.img "$image" --accel kvm
+          sudo -n -- runuser -u "$(id -un)" -g kvm -- "$(command -v python3)" x86-64/test-sysupgrade.py previous-release/base.img "$image" --accel kvm
 
       - name: Verify latest release to new and new to new upgrades
         env:
@@ -187,7 +187,7 @@ jobs:
           gzip -dc latest-release/*.img.gz > latest-release/base.img
           image=$(find bin/targets/x86/64 -maxdepth 1 -name '*squashfs-combined-efi.img.gz' -print -quit)
           cp "$image" latest-upgrade/firmware.img.gz
-          sudo -n -u "$(id -un)" -g kvm -- "$(command -v python3)" x86-64/test-sysupgrade.py latest-release/base.img latest-upgrade/firmware.img.gz --with-meowx-mesh --accel kvm
+          sudo -n -- runuser -u "$(id -un)" -g kvm -- "$(command -v python3)" x86-64/test-sysupgrade.py latest-release/base.img latest-upgrade/firmware.img.gz --with-meowx-mesh --accel kvm
 
       - name: Build ISO installer from verified firmware
         run: |
