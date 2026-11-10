@@ -139,42 +139,19 @@ function stage(plan) {
 }
 let failure;
 try {
-    // Test disabling a pre-existing enabled physical device. The stable netifd
-    // bug for an already-disabled bridge member is rejected by the planner.
-    // After rollback eth1 is a bridge member, not a WAN L3 interface: require
-    // WAN/WAN6 removal and restored br-lan IPv6, not a derived member flag.
-    assert(!u.get('network','fixture_wan_device'),'unexpected fixture device already exists');
-    u.set('network','fixture_wan_device','device');
-    u.set('network','fixture_wan_device','name','eth1');
-    u.set('network','fixture_wan_device','ipv6','1');
-    u.commit('network');
-    rpc('network','reload',{});
     saved={};
     for(let name in keys(original))saved[name]=readfile('/etc/config/'+name);
     wait_runtime(baseline,'initial',30);
     for(let plan in json(readfile('/tmp/johnny-network-plans.json'))) {
-        printf('NETWORK_TEST_BEGIN %s/%s IPv6=%J\n',plan.role,plan.protocol,plan.ipv6);
+        printf('NETWORK_TEST_BEGIN %s/%s\n',plan.role,plan.protocol);
         stage(plan);
         call('apply',{rollback:true,timeout:20});
         let bridge=filter(plan.updates,item=>item.config=='network'&&item.section=='fixture_bridge')[0];
-        let main=plan.role=='main',enabled=plan.ipv6==true;
+        let main=plan.role=='main';
         let expected={proto:main?'static':plan.protocol,
             interfaces:{wan:main,wan6:main?null:false,wan_6:false,lan6:false},clients:'',
             ports:port_signature(map(bridge.values.ports,p=>'/sys/class/net/br-lan/brif/'+p)),
-            ipv6:type(plan.ipv6)=='bool'?(plan.ipv6?'0':'1'):baseline.ipv6};
-        if(main&&type(plan.ipv6)=='bool') {
-            expected.wanIPv6=expected.ipv6;
-            expected.interfaces.wan6={proto:'dhcpv6',autostart:enabled};
-            if(!enabled)expected.interfaces.wan6={...expected.interfaces.wan6,up:false,pending:false};
-            // No PPPoE server is provided: IPv6CP/PD negotiation is not tested.
-            if(enabled&&plan.protocol!='pppoe') {
-                expected.interfaces.wan6.device='eth1';
-                expected.clients='wan6:eth1';
-            }
-        } else if(enabled) {
-            expected.interfaces.lan6={proto:'dhcpv6',device:'br-lan',autostart:true};
-            expected.clients='lan6:br-lan';
-        }
+            ipv6:baseline.ipv6};
         wait_runtime(expected,'applied',15);
         let live=cursor();
         assert(live.get('network','lan','proto')==(plan.role=='main'?'static':plan.protocol));
@@ -185,27 +162,6 @@ try {
             assert(live.get('network','wan','proto')==plan.protocol);
             assert(system('fw4 check >/dev/null 2>&1')==0);
         }
-        if (type(plan.ipv6)=='bool') {
-            let enabled=plan.ipv6, main=plan.role=='main';
-            assert(live.get('network','lan','ipv6')==(enabled?'1':'0'),'LAN UCI IPv6='+live.get('network','lan','ipv6'));
-            assert(trim(readfile('/proc/sys/net/ipv6/conf/br-lan/disable_ipv6'))==(enabled?'0':'1'),'br-lan disable_ipv6='+readfile('/proc/sys/net/ipv6/conf/br-lan/disable_ipv6'));
-            assert(live.get('dhcp','lan','ra')==(enabled&&main?'server':'disabled'));
-            assert(live.get('dhcp','lan','dhcpv6')==(enabled&&main?'server':'disabled'));
-            if (main) {
-                assert(live.get('network','wan6','device')=='@wan');
-                assert(live.get('network','wan6','auto')==(enabled?'1':'0'));
-                assert(live.get('network','wan','ipv6')==(enabled?'1':'0'));
-                assert(trim(readfile('/proc/sys/net/ipv6/conf/eth1/disable_ipv6'))==(enabled?'0':'1'));
-                if (enabled) {
-                    assert(live.get('network','wan6','delegate')=='1');
-                    assert(live.get('network','wan6','reqprefix')=='auto');
-                }
-            } else if (enabled) {
-                assert(live.get('network','lan6','device')=='@lan');
-                assert(live.get('network','lan6','reqprefix')=='no');
-            } else assert(!live.get('network','lan6'));
-            assert(system('fw4 check')==0,'IPv6 firewall validation failed');
-        }
         // Deliberately do not confirm: native rpcd must restore the exact files.
         for(let i=0;i<60;i++) {
             if(length(filter(keys(saved),name=>readfile('/etc/config/'+name)!=saved[name]))==0)break;
@@ -215,7 +171,7 @@ try {
         for(let name in ['network','dhcp','firewall'])call('revert',{config:name});
         // Restored UCI files do not mean netifd has finished rebuilding the bridge.
         wait_runtime(baseline,'rollback',30);
-        printf('PASS: %s/%s IPv6=%J native apply and automatic rollback\n',plan.role,plan.protocol,plan.ipv6);
+        printf('PASS: %s/%s native apply and automatic rollback\n',plan.role,plan.protocol);
     }
     call('set',{config:'network',section:'lan',values:{hostname:'johnny-confirm-test'}});
     call('apply',{rollback:true,timeout:6});

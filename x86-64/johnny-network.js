@@ -33,27 +33,20 @@ return view.extend({
             || (bridge&&bridge.type!=='bridge')
             || (bridge&&list(bridge.ports).some(p=>!ports.includes(p)&&p!=='dheth0'))
             || list(uci.get('network','lan','ipaddr')).length>1
-            || list(lanZone?.network).some(n=>!['lan','lan6'].includes(n))
+            || list(lanZone?.network).some(n=>n!=='lan')
             || list(wanZone?.network).some(n=>!['wan','wan6'].includes(n))
             || (lanZone&&['input','output','forward'].some(key=>lanZone[key]!=='ACCEPT'))
             || (wanZone&&(wanZone.output!=='ACCEPT'||['input','forward'].some(key=>!['REJECT','DROP'].includes(wanZone[key]))))
-            || zones.some(s=>s!==lanZone&&s!==wanZone&&list(s.network).some(n=>['lan','lan6','wan','wan6'].includes(n)))
+            || zones.some(s=>s!==lanZone&&s!==wanZone&&list(s.network).some(n=>['lan','wan','wan6'].includes(n)))
             || zones.filter(s=>s.name==='lan').length>1 || zones.filter(s=>s.name==='wan').length>1
             || forwarding.some(s=>s.src==='lan'&&s.dest==='wan'&&s.enabled==='0')
             || lan.some(p=>p!=='br-lan'&&!ports.includes(p)) || (lan.includes('br-lan')&&!bridge)
             || (wan&&!ports.includes(wan))
             || (uci.get('network','wan6','proto')&&!['dhcpv6','none'].includes(uci.get('network','wan6','proto')))
-            || (uci.get('network','lan6','proto')&&(uci.get('network','lan6','proto')!=='dhcpv6'||uci.get('network','lan6','device')!=='@lan'))
-            || ['ra','dhcpv6','ndp'].some(k=>uci.get('dhcp','lan',k)==='relay')
-            || ['ip6addr','ip6prefix'].some(k=>uci.get('network','lan',k))
             || uci.sections('network','bridge-vlan').length>0;
         return {ports,bridge:bridge?.['.name'],interfaces:interfaces.map(s=>s['.name']),complex,
-            role:wan?'main':'bypass',portDevices:Object.fromEntries(devices.filter(s=>ports.includes(s.name)).map(s=>[s.name,s['.name']])),
-            bridgePorts:list(bridge?.ports),portIPv6:Object.fromEntries(devices.filter(s=>ports.includes(s.name)).map(s=>[s.name,s.ipv6])),
-            wan6Prefix:/^(?:[1-9]|[1-5][0-9]|6[0-4])$/.test(uci.get('network','wan6','reqprefix')||'')?uci.get('network','wan6','reqprefix'):null,
             pending:!!data.status.pending_network||Object.values(data.changes||{}).some(x=>x.length),
             lanZone:lanZone?.['.name'],wanZone:wanZone?.['.name'],
-            ip6assign:Number(uci.get('network','lan','ip6assign'))>0?uci.get('network','lan','ip6assign'):null,
             lanWanForward:uci.sections('firewall','forwarding').some(s=>s.src==='lan'&&s.dest==='wan'&&s.enabled!=='0')};
     },
     networkSnapshot:function(){return JSON.stringify(['network','dhcp','firewall'].map(c=>uci.sections(c)));},
@@ -89,7 +82,6 @@ return view.extend({
         options.map(([value,label])=>E('option',{value,selected:value===this.values[key]||null},label)));},
     choices:function(key,options){return E('div',{class:'jw-choice-grid'},options.map(([value,label,description])=>E('label',{class:'jw-choice '+(this.values[key]===value?'jw-choice-selected':'')},[
         E('input',{type:'radio',name:key,value,checked:this.values[key]===value||null,change:()=>{
-            if(key==='role'&&value!==this.values.role&&this.values.ipv6===undefined)this.values.ipv6=this.ipv6Enabled;
             this.values[key]=value;
             if(key==='role'&&value==='main')this.values.lanPorts=this.values.lanPorts.filter(p=>p!==this.values.wanPort);
             this.draw();}}),
@@ -115,7 +107,7 @@ return view.extend({
                     this.draw();
                 }}),icon('router'),E('strong',{},p),E('small',{},this.data.status.interfaces.find(x=>x.name===p)?.state==='up'?'已连接':'未连接')]))));
             if(main&&this.env.ports.length<2)contents.push(E('p',{class:'alert-message warning'},'主路由需要独立 WAN 和 LAN 网口。单网口 VLAN 方案请使用高级设置。'));
-            contents.push(E('p',{class:'jw-subtle'},'ZeroTier 接口及内网转发在两种模式下均保留。复杂 VLAN 和自定义 IPv6 可在原生网络设置中管理。'));
+            contents.push(E('p',{class:'jw-subtle'},'ZeroTier 接口及内网转发在两种模式下均保留。复杂 VLAN 和 IPv6 可在原生网络设置中管理。'));
         }else if(this.step===1){
             if(main)contents.push(E('h4',{},'WAN 上网方式'));
             contents.push(this.choices('protocol',[
@@ -131,11 +123,6 @@ return view.extend({
             toggle.className='jw-toggle'+(main&&v.dhcp?' jw-toggle-on':'');toggle.setAttribute('role','switch');toggle.setAttribute('aria-checked',String(main&&v.dhcp));
             contents.push(E('div',{class:'jw-field'},[E('strong',{},'DHCP 服务'),E('div',{class:'jw-dhcp-control'},[toggle,E('span',{},main&&v.dhcp?'已开启':'已关闭')])]),
                 E('p',{class:'jw-field-hint'},main?'为 LAN 内网设备自动分配地址。':'由主路由分配地址，避免冲突。'));
-            const ipv6=v.ipv6??this.ipv6Enabled;
-            const toggle6=this.button(ipv6?'关闭 IPv6':'开启 IPv6',()=>{v.ipv6=!ipv6;this.draw();},readonly);
-            toggle6.className='jw-toggle'+(ipv6?' jw-toggle-on':'');toggle6.setAttribute('role','switch');toggle6.setAttribute('aria-checked',String(ipv6));
-            contents.push(E('div',{class:'jw-field'},[E('strong',{},'IPv6'),E('div',{class:'jw-dhcp-control'},[toggle6,E('span',{},ipv6?'已开启':'已关闭')])]),
-                E('p',{class:'jw-field-hint'},(main?'开启后通过 WAN 获取 IPv6，并向 LAN 分配。':'开启后仅为本机获取上级 IPv6，不向内网分配地址。')+' 同模式下未切换时保留现有设置；更换路由模式时会按开关状态调整，请在预览中确认。关闭仅影响本机 LAN/WAN，其他设备仍由主路由控制。'));
         }else{
             contents.push(E('div',{class:'jw-plan-summary'},this.plan.summary.map(s=>E('p',{},[E('span',{},'✓'),s]))),
                 E('p',{},'应用后网络会暂时断开。请按 LuCI 的提示重新连接并确认，超时未确认将自动恢复。'),
@@ -164,8 +151,6 @@ return view.extend({
         this.snapshot=this.networkSnapshot();
         const wan=uci.get('network','wan','device')||uci.get('network','wan','ifname');
         const dns=list(uci.get('network',wan?'wan':'lan','dns'));
-        this.ipv6Enabled=uci.get('network','lan','ipv6')!=='0'&&uci.get('network',this.env.bridge,'ipv6')!=='0'&&
-            (wan?uci.get('network','wan','ipv6')!=='0'&&uci.get('network','wan6','proto')==='dhcpv6'&&uci.get('network','wan6','auto')!=='0':uci.get('network','lan6','proto')==='dhcpv6'&&uci.get('network','lan6','auto')!=='0');
         this.values={role:wan?'main':'bypass',wanPort:wan||this.env.ports[1]||this.env.ports[0],
             lanPorts:list(uci.get('network',this.env.bridge,'ports')).filter(p=>this.env.ports.includes(p)),protocol:uci.get('network',wan?'wan':'lan','proto')||'dhcp',
             address:uci.get('network','lan','ipaddr')||'192.168.1.1',mask:uci.get('network','lan','netmask')||'255.255.255.0',

@@ -334,49 +334,17 @@ test('subscription switching is serialized and reports failure',async()=>{
     assert(t.notifications.some(s=>s.includes('invalid subscription')));
 });
 
-test('IPv6 switch previews only on explicit change and remains readonly for observers',async()=>{
-    for(const readonly of [false,true]){
-        const t=setup('johnny-network.js',readonly);
-        t.setStatus({interfaces:[{name:'eth0',physical:true},{name:'eth1',physical:true}],zerotier:{lan:{}}});
-        t.uci.get=(c,s,k)=>({'network.lan.proto':'dhcp','network.lan.ipv6':'0'})[[c,s,k].join('.')];
-        await t.view.render(await t.view.load());
-        assert.equal(t.view.values.ipv6,undefined);
-        t.view.step=1;t.view.draw();
-        const toggle=t.button('开启 IPv6');assert(toggle);
-        assert.equal(toggle['aria-checked'],'false');
-        await toggle.click();
-        assert.equal(t.view.values.ipv6,readonly?undefined:true);
-        if(!readonly){
-            t.view.values.lanPorts=['eth0'];await t.button('预览变更 →').click();
-            assert.equal(t.view.step,2);assert(t.view.plan.summary.some(x=>x.includes('IPv6：开启')));
-        }
-    }
-});
-test('network wizard refuses custom LAN IPv6 clients and relay configurations',()=>{
-    for(const values of [ {'network.lan6.proto':'static','network.lan6.device':'@lan'}, {'network.lan6.proto':'dhcpv6','network.lan6.device':'eth1'}, {'dhcp.lan.ra':'relay'} ]){
-        const t=setup('johnny-network.js');t.uci.get=(...keys)=>values[keys.join('.')];
-        assert.equal(t.view.environment({status:{interfaces:[]},changes:{}}).complex,true);
-    }
-});
-for(const disabled of ['0','false'])test(`network apply rejects disabled (${disabled}) custom bridge-port transition before any UCI write`,async()=>{
-    const t=setup('johnny-network.js');let writes=0;
-    t.uci.sections=(c,type)=>c==='network'&&type==='device'?[{'.name':'bridge',name:'br-lan',type:'bridge',ports:['eth0','eth1']},{'.name':'custom',name:'eth1',ipv6:disabled}]:[];
-    for(const key of ['add','set','unset','remove','save'])t.uci[key]=()=>{writes++;};
-    t.setStatus({interfaces:[{name:'eth0',physical:true},{name:'eth1',physical:true}]});
-    t.view.values={role:'main',protocol:'dhcp',lanPorts:['eth0'],wanPort:'eth1',address:'192.168.50.1',mask:'255.255.255.0',ipv6:false};
-    t.view.snapshot=t.view.networkSnapshot();
-    await assert.rejects(t.view.applyPlan({}),/自定义.*IPv6.*高级/);
-    assert.equal(writes,0);
-});
-
-test('role changes carry the existing IPv6 switch into an explicit preview choice',async()=>{
-    for(const initial of ['main','bypass']){
-        const t=setup('johnny-network.js');
-        const config=initial==='main'?{'network.wan.device':'eth1','network.wan6.proto':'dhcpv6'}:{'network.lan6.proto':'dhcpv6','network.lan6.device':'@lan'};
-        t.uci.get=(...keys)=>config[keys.join('.')];
-        t.setStatus({interfaces:[{name:'eth0',physical:true},{name:'eth1',physical:true}],zerotier:{lan:{}}});
-        await t.view.render(await t.view.load());assert.equal(t.view.values.ipv6,undefined);
-        t.nodes.findLast(n=>n.tag==='input'&&n.value===(initial==='main'?'bypass':'main')).change();
-        assert.equal(t.view.values.ipv6,true);
-    }
+test('network wizard changes role and previews without adding IPv6 controls or policy',async()=>{
+    const t=setup('johnny-network.js');
+    t.uci.sections=(c,type)=>c==='network'&&type==='device'?[{'.name':'bridge',name:'br-lan',type:'bridge',ports:['eth0','eth1']}]:[];
+    t.uci.get=(c,s,k)=>s==='bridge'&&k==='ports'?['eth0','eth1']:null;
+    t.setStatus({interfaces:[{name:'eth0',physical:true},{name:'eth1',physical:true}],zerotier:{lan:{}}});
+    await t.view.render(await t.view.load());
+    t.nodes.findLast(n=>n.tag==='input'&&n.value==='main'&&n.type==='radio').change();
+    await t.button('下一步 →').click();
+    assert.equal(t.view.step,1);
+    assert(!t.button('开启 IPv6'));assert(!t.button('关闭 IPv6'));
+    await t.button('预览变更 →').click();
+    assert.equal(t.view.step,2);
+    assert(!t.view.plan.updates.some(x=>Object.hasOwn(x.values,'ipv6')));
 });

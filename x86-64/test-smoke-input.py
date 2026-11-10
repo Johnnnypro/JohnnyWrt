@@ -169,9 +169,9 @@ class SmokeInputTest(unittest.TestCase):
             content = plans.read_bytes()
             self.assertLessEqual(max(map(len, content.splitlines())), 500)
             self.assertEqual([(p['role'], p['protocol'], p.get('ipv6')) for p in json.loads(content)],
-                             [(role, protocol, ipv6) for role, protocol in
+                             [(role, protocol, None) for role, protocol in
                               [('bypass', 'dhcp'), ('bypass', 'static'), ('main', 'dhcp'),
-                               ('main', 'static'), ('main', 'pppoe')] for ipv6 in [None, True, False]])
+                               ('main', 'static'), ('main', 'pppoe')]])
 
     def test_complete_smoke_input_without_building_or_booting(self):
         with tempfile.TemporaryDirectory() as directory:

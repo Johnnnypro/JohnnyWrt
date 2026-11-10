@@ -284,7 +284,7 @@ output = b""
 passed = False
 try:
     with log_path.open("wb") as log:
-        # Full IPv6 apply/rollback matrix took 697s on CI; keep network/download margin.
+        # Keep the existing full-function timeout, including network and download margin.
         while time.monotonic() - started < 900:
             for key, _ in selector.select(timeout=1):
                 chunk = os.read(key.fileobj.fileno(), 65536)

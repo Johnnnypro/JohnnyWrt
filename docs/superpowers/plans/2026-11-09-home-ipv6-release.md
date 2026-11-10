@@ -1,4 +1,6 @@
-# Homepage, IPv6 wizard and date-based release
+# Homepage and date-based release
+
+IPv6 scope superseded by the user on 2026-11-10; execute 2026-11-10-restore-original-ipv6.md. The older steps below record the original plan, not the final feature set.
 
 Spec: ../specs/2026-11-09-home-ipv6-release.md
 

@@ -130,74 +130,19 @@ test('native network save delegates to LuCI rollback without committing individu
     assert.deepEqual(calls.slice(-2),[['save'],['apply',true]]);
 });
 
-const mainIPv6={...bypass,role:'main',wanPort:'eth1',protocol:'dhcp'};
-const value=(plan,config,section)=>plan.updates.find(x=>x.config===config&&x.section===section)?.values;
-test('IPv6 is unchanged until explicitly selected, including existing RA and PD choices',()=>{
-    const p=model.networkPlan(mainIPv6,env);
-    assert.equal(value(p,'network','lan').ipv6,undefined);
-    assert.equal(value(p,'network','lan').ip6assign,undefined);
-    assert.equal(value(p,'dhcp','lan').ra,undefined);
-    assert.match(p.summary.join('\n'),/IPv6：保留现有设置/);
-});
-for(const protocol of ['dhcp','static','pppoe']) for(const ipv6 of [true,false])test(`main ${protocol} IPv6 ${ipv6} controls WAN acquisition and LAN advertisement`,()=>{
-    const p=model.networkPlan({...mainIPv6,protocol,ipv6,wanAddress:'192.0.2.2',wanMask:'255.255.255.0',wanGateway:'192.0.2.1',username:'fixture',password:'test-only'},env);
-    assert.equal(value(p,'network','lan').ipv6,ipv6?'1':'0');
-    assert.equal(value(p,'network','br_lan').ipv6,ipv6?'1':'0');
-    assert.equal(value(p,'network','wan').ipv6,ipv6?'1':'0');
-    assert.equal(value(p,'network','wan6').auto,ipv6?'1':'0');
-    assert.equal(value(p,'network','wan6').proto,'dhcpv6');
-    assert.equal(value(p,'network','lan').ip6assign,ipv6?'60':'0');
-    assert.equal(value(p,'dhcp','lan').ra,ipv6?'server':'disabled');
-    assert.equal(value(p,'dhcp','lan').dhcpv6,ipv6?'server':'disabled');
-    assert.match(p.summary.join('\n'),ipv6?/IPv6：开启/:/IPv6：关闭/);
-});
-for(const ipv6 of [true,false])test(`bypass IPv6 ${ipv6} never advertises or requests a delegated prefix`,()=>{
-    const p=model.networkPlan({...bypass,ipv6},env);
-    assert.equal(value(p,'network','lan').ipv6,ipv6?'1':'0');
-    assert.equal(value(p,'network','lan').ip6assign,'0');
-    assert.equal(value(p,'dhcp','lan').ra,'disabled');
-    assert.equal(value(p,'dhcp','lan').dhcpv6,'disabled');
-    if(ipv6){
-        assert.equal(value(p,'network','lan6').proto,'dhcpv6');
-        assert.equal(value(p,'network','lan6').device,'@lan');
-        assert.equal(value(p,'network','lan6').reqprefix,'no');
-        assert.deepEqual(value(p,'firewall','johnny_lan').network,['lan','lan6']);
-    }else assert(p.deletes.some(x=>x.config==='network'&&x.section==='lan6'));
-    assert.equal(p.updates.some(x=>['meowx','zerotier'].includes(x.config)),false);
-});
-test('changing bypass to main removes the wizard LAN DHCPv6 client and stale firewall membership',()=>{
-    const p=model.networkPlan({...mainIPv6,ipv6:true},{...env,interfaces:[...env.interfaces,'lan6']});
-    assert(p.deletes.some(x=>x.section==='lan6'));
-    assert.deepEqual(value(p,'firewall','johnny_lan').network,['lan']);
-});
-
-test('unrelated same-role edits retain LAN IPv6 client and its firewall membership',()=>{
-    const e={...env,role:'main',interfaces:[...env.interfaces,'lan6']};
-    const p=model.networkPlan(mainIPv6,e);
-    assert(!p.deletes.some(x=>x.section==='lan6'));
-    assert.deepEqual(value(p,'firewall','johnny_lan').network,['lan','lan6']);
-});
-test('changing router role requires an IPv6 choice in either direction',()=>{
-    assert.throws(()=>model.networkPlan(mainIPv6,{...env,role:'bypass'}),/IPv6/);
-    assert.throws(()=>model.networkPlan(bypass,{...env,role:'main'}),/IPv6/);
-});
-for(const ipv6 of [true,false])test(`explicit WAN Ethernet settings follow IPv6 ${ipv6}`,()=>{
-    const p=model.networkPlan({...mainIPv6,ipv6},{...env,portDevices:{eth1:'wan_device'}});
-    assert.equal(value(p,'network','wan_device').ipv6,ipv6?'1':'0');
-});
-test('explicit enable restores WAN6 prefix delegation while retaining a valid prefix hint',()=>{
-    for(const hint of [null,'56']){
-        const p=model.networkPlan({...mainIPv6,ipv6:true},{...env,wan6Prefix:hint});
-        const v=value(p,'network','wan6');
-        assert.equal(v.delegate,'1');assert.equal(v.ipv6,'1');
-        assert.equal(v.reqprefix,hint||'auto');
-    }
-});
-for(const disabled of ['0','false'])test(`refuses moving an explicitly IPv6-disabled (${disabled}) bridge member to WAN while keeping IPv6 off`,()=>{
-    const e={...env,bridgePorts:['eth0','eth1'],portIPv6:{eth1:disabled},portDevices:{eth1:'wan_device'}};
-    assert.throws(()=>model.networkPlan({...mainIPv6,ipv6:false},e),/自定义.*IPv6.*高级/);
-    assert.throws(()=>model.networkPlan(mainIPv6,e),/自定义.*IPv6.*高级/);
-    assert.doesNotThrow(()=>model.networkPlan({...mainIPv6,ipv6:true},e));
-    assert.doesNotThrow(()=>model.networkPlan({...mainIPv6,ipv6:false},{...e,bridgePorts:['eth0']}));
-    assert.doesNotThrow(()=>model.networkPlan({...mainIPv6,ipv6:false},{...e,portIPv6:{eth1:'1'}}));
+for(const ipv6 of [undefined,true,false])test(`role changes retain the published IPv6 policy even with stale choice ${ipv6}`,()=>{
+    const p=model.networkPlan({...bypass,role:'main',protocol:'dhcp',wanPort:'eth1',ipv6},
+        {...env,role:'bypass',bridgePorts:['eth0','eth1'],portIPv6:{eth1:'0'},portDevices:{eth1:'custom'}});
+    const values=(config,section)=>p.updates.find(x=>x.config===config&&x.section===section)?.values;
+    assert.equal(values('network','lan').ipv6,undefined);
+    assert.equal(values('network','lan').ip6assign,undefined);
+    assert.equal(values('network','br_lan').ipv6,undefined);
+    assert.equal(values('network','wan').ipv6,undefined);
+    assert.equal(values('network','custom'),undefined);
+    assert.deepEqual(values('network','wan6'),{device:'@wan',ifname:null});
+    assert.equal(values('dhcp','lan').ra,undefined);
+    assert(!p.updates.some(x=>x.section==='lan6'));
+    const b=model.networkPlan({...bypass,ipv6},{...env,role:'main'});
+    assert.deepEqual(b.deletes,[{config:'network',section:'wan'},{config:'network',section:'wan6'}]);
+    assert.equal(b.updates.find(x=>x.config==='dhcp'&&x.section==='lan').values.ra,'disabled');
 });
