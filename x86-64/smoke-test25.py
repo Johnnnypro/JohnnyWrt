@@ -126,9 +126,9 @@ else
     exit "$?"
 fi
 apk add kmod-veth kmod-dummy tcpdump
-ip link add johnny_module_test type dummy
-ip link set johnny_module_test up
-ip link del johnny_module_test
+ip link add johnny_mod0 type dummy
+ip link set johnny_mod0 up
+ip link del johnny_mod0
 fw4 check
 # Retained-settings defaults must not rewrite an existing network.
 uci set network.lan.hostname=preserved-test

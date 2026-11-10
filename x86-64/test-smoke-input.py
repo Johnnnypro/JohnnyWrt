@@ -13,6 +13,13 @@ root = Path(__file__).parent
 
 
 class SmokeInputTest(unittest.TestCase):
+    def test_serial_network_fixture_names_fit_linux_limit(self):
+        source = (root / 'smoke-test25.py').read_text()
+        names = re.findall(r'ip link (?:add|set|del) ([a-zA-Z0-9_]+)', source)
+        self.assertTrue(names)
+        for name in names:
+            self.assertLessEqual(len(name.encode()), 15, name)
+
     def test_diagnostics_start_without_the_removed_zerotier_helper(self):
         source = (root / 'test-johnny-nat-diagnostics.sh').read_text()
         source = source.replace('/tmp/johnny-nat-diagnostics', '$fixture/evidence')
